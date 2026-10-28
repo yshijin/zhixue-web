@@ -1,0 +1,57 @@
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    session:
+      timeout: 8h
+      cookie:
+        http-only: true
+        same-site: lax
+  error:
+    include-message: always
+
+spring:
+  application:
+    name: zhixue-server
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://127.0.0.1:5432/xiangmu}
+    username: ${DB_USER:xiangmu}
+    password: ${DB_PASSWORD:xiangmu_dev}
+    hikari:
+      maximum-pool-size: 12
+      minimum-idle: 2
+      connection-timeout: 10000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: Asia/Shanghai
+        format_sql: false
+  jackson:
+    time-zone: Asia/Shanghai
+    serialization:
+      write-dates-as-timestamps: false
+  web:
+    resources:
+      cache:
+        period: 0
+      chain:
+        cache: false
+
+app:
+  demo-reset-enabled: ${DEMO_RESET_ENABLED:false}
+  seed-file: classpath:seed.json
+  ai:
+    enabled: ${AI_ENABLED:false}
+    base-url: ${AI_BASE_URL:https://api.deepseek.com/v1}
+    api-key: ${AI_API_KEY:}
+    model: ${AI_MODEL:deepseek-chat}
+    timeout-seconds: ${AI_TIMEOUT_SECONDS:25}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN

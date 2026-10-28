@@ -1,0 +1,154 @@
+# CONTEXT · 开发交接与验收说明
+
+> 项目：课程知识点智能测评与学习诊断智能体（V2.0 服务端版）
+> 目录：`D:\xiangmuuuu`
+> 入口：<http://127.0.0.1:8080>
+> 技术栈：JDK 21 + Spring Boot 3.4.5 + PostgreSQL + Spring Security + 原生 SPA
+
+## 1. 当前状态
+
+- 已从纯静态原型升级为真实多用户系统：服务端 Session 登录、共享 PostgreSQL、服务端计时/判分、并发交卷保护、三角色权限隔离。
+- 前端保留原有中文界面和视觉风格，静态资源由 Spring Boot 托管；不需要 Node.js。
+- 当前数据库为干净演示状态：6 份试卷、40 名学生、39 条作答记录（p1 37 条 + 2 条历史记录）、7 条种子审计日志。
+- p1 为进行中，完成 37/40；学生 `20260001`（袁仕郡）尚未作答 p1，可直接演示开始考试 → 自动保存 → 交卷 → 结果/诊断全流程。
+- 本地 PostgreSQL 运行在 `127.0.0.1:5432`，数据目录 `D:\xiangmuuuu\.local\pgdata`；数据库运行时和 `.local` 均不进入交付包。
+- 已初始化本地 Git 仓库，分支 `main`，无远程；`.local/`、`server/target/`、日志、密钥和 ZIP 已被忽略。
+
+## 2. 启动与服务
+
+### 2.1 数据库
+
+默认参数：
+
+- URL：`jdbc:postgresql://127.0.0.1:5432/xiangmu`
+- 用户/密码：`xiangmu` / `xiangmu_dev`
+- 初始化脚本：`deploy/init-db.sql`
+
+首次启动自动建表并导入 `server/src/main/resources/seed.json`；已有数据时不会重复导入。
+
+### 2.2 构建
+
+Maven 未加入系统 PATH 时使用：
+
+```powershell
+& 'D:\tools\apache-maven-3.9.16\bin\mvn.cmd' clean package
+```
+
+工作目录为 `D:\xiangmuuuu\server`。构建会把根目录的 `index.html`、`app.html` 和 `assets/**` 复制进 jar 的 `static/`。
+
+### 2.3 运行
+
+```powershell
+cd D:\xiangmuuuu
+.\start-server.ps1
+```
+
+等价于：
+
+```powershell
+java -jar server\target\zhixue-server-2.0.0.jar
+```
+
+需要重置演示数据时临时使用：
+
+```powershell
+.\start-server.ps1 -EnableDemoReset
+```
+
+正式运行不要开启 `DEMO_RESET_ENABLED`，否则课程负责人可调用 `/api/demo/reset` 清空业务数据。
+
+## 3. 演示账号
+
+| 角色 | 账号 | 密码 | 说明 |
+| --- | --- | --- | --- |
+| 课程负责人 | `admin` | `123456` | 全局课程、知识点、题库、教师、教学班、统计、审计 |
+| 教师 | `zhaolin` | `123456` | 软件24201，组卷、发布、学生、统计、报告 |
+| 学生 | `20260001` | `123456` | 袁仕郡，p1 测评与结果诊断 |
+
+40 名种子学生均可用学号登录，初始密码 `123456`。登录页不再提供“切换角色”，必须使用真实账号。
+
+## 4. 代码结构
+
+```text
+index.html                         登录页
+app.html                           SPA 工作台壳层
+assets/css/style.css               全站样式与响应式
+assets/js/api.js                   REST 客户端、Session、服务端时钟同步
+assets/js/core.js                  Bootstrap 数据、路由、统计、诊断辅助
+assets/js/views-cl.js              课程负责人页面
+assets/js/views-teacher.js         教师页面
+assets/js/views-student.js         学生考试/结果/报告/历史
+assets/js/actions.js               路由动作、自动刷新、CSV 导入、AI、导出
+assets/js/data.js                  旧静态版数据，仅作视觉与字段参考
+server/                            Spring Boot 后端
+server/src/main/resources/seed.json 演示种子
+deploy/                            Nginx、数据库初始化、部署说明
+start-server.ps1                   本地启动脚本
+```
+
+后端关键文件：
+
+- `config/SecurityConfig.java`：Session、BCrypt、静态资源放行、接口权限。
+- `security/AccountUserDetailsService.java`、`security/AppPrincipal.java`：账号加载与当前用户。
+- `service/BootstrapService.java`：按角色过滤数据、答案脱敏、`attempt.correct` 计算。
+- `service/AttemptService.java`：开始/恢复、自动保存、交卷、判分、超时与并发锁。
+- `service/SeedService.java`：种子导入与演示数据重置。
+- `web/ManageController.java`：课程/知识点/题目/教师/班级/试卷管理等写入接口。
+- `web/ImportController.java`：CSV 预检与入库。
+- `service/AiService.java`：OpenAI-compatible 云端 AI，可选。
+- `resources/application.yml`：数据库、Session、AI、端口配置。
+
+## 5. 关键实现约定
+
+- 登录使用服务端 HttpSession，密码 BCrypt 哈希；前端不保存业务数据到 `localStorage`。
+- `/api/bootstrap` 一次返回当前角色可见数据；前端启动、刷新和 30 秒轮询都走同一接口。
+- 自动刷新在考试页、组卷向导、弹窗打开、输入框聚焦、页面隐藏或 10 秒内有用户操作时跳过。
+- 试卷发布时保存题目、选项、答案、知识点快照；之后题库变化不影响已发布试卷。
+- 开始考试由数据库唯一约束（试卷 + 学生）和单实例同步方法防重复；交卷使用 `PESSIMISTIC_WRITE` 行锁。
+- 分数与正确率只由服务端按快照判分；客户端提交的分数不被信任。
+- 考试时间以服务器 `startedAt` 为准；前端用 `serverTime` 校正时钟，超时由服务端兜底。
+- 学生端未开放试卷不下发题目内容；答案/解析根据 `answerPolicy` 脱敏。
+- 教师只能操作本人教学班和本人试卷；学生只能访问本班已发布试卷；管理接口仅课程负责人可用。
+- 关键操作写审计日志；日志按时间倒序展示。
+- CSV 导入先预检、再确认入库；仅支持 UTF-8 CSV。
+
+## 6. 已验证项
+
+- 三角色登录、Session Cookie、`/api/bootstrap`、`/api/health`。
+- p1 开始、逐题作答、自动保存、交卷、结果页和诊断。
+- 4 个并发 `start` 返回同一 attempt；4 个并发 `submit` 只产生一条已提交记录。
+- 教师向非本人教学班加学生/发卷返回 403；学生调用管理接口返回 403；负责人可重置教师密码。
+- CSV 导入预检与提交；导入学生后可用学号登录。
+- AI 未配置时 `/api/ai/status` 返回 `enabled=false`，诊断接口返回 503 提示。
+- `/api/demo/reset` 恢复 6 份试卷、40 名学生、39 条 attempts、7 条审计日志。
+
+本地测试脚本保存在 `.local/`（例如 `api_test.py`、`perm_test.py`、`concurrency_test.py`、`import_test.py`），仅用于联调，不进入 Git 和交付包。
+
+## 7. 已知限制与上线前事项
+
+- 当前按单实例设计；多实例部署需要数据库唯一约束、分布式锁或重试机制。
+- 一份试卷每名学生目前只允许一次作答；`attemptsAllowed` 字段保留，但多尝试流程未开放。
+- 使用 `ddl-auto=update` 且关闭 CSRF，仅适合当前联调；正式部署应使用 Flyway/Liquibase 受控迁移并恢复 CSRF。
+- 导出为学生/统计页面的浏览器端 CSV，不是服务端异步任务。
+- 云端 AI 需自备 API Key；未配置时自动使用本地规则诊断。
+- 未实现通知、邮件、附件持久化、定时任务和多实例消息同步。
+- 交付包不包含 PostgreSQL 运行时、`.local/` 和数据库物理文件。
+
+## 8. 交接检查清单
+
+1. 启动 PostgreSQL，确认 5432 可连接。
+2. 使用最新源码重新构建 jar，启动时不设置 `DEMO_RESET_ENABLED`。
+3. 打开 <http://127.0.0.1:8080>，确认登录页中文和样式正常。
+4. 分别登录 `admin`、`zhaolin`、`20260001`，确认可见数据符合角色。
+5. 学生端确认 p1 可进入；教师端确认完成人数 37/40；负责人端确认审计日志存在。
+6. 打开 CSV 导入预检后取消，不写数据库；如需演示重置，临时开启后重启并再次关闭。
+7. 确认 Git 状态干净、交付 ZIP 不含 `.local/`、`server/target/` 之外的运行时目录和 PostgreSQL 二进制。
+
+## 9. 排障
+
+- 登录后立刻跳回登录页：检查 Session Cookie、后端 401、数据库是否启动。
+- 403：多为跨教学班/跨教师操作，或学生调用了管理接口。
+- AI 诊断 503：未配置 `AI_ENABLED` 与 `AI_API_KEY`，属预期行为。
+- 页面数据不更新：自动刷新会跳过考试、组卷、弹窗和输入状态；可手动刷新页面。
+- 修改中文 HTML/JS 时只使用编辑器/写入工具，不要用 PowerShell 的 `Get-Content` + `Set-Content -Encoding UTF8`，避免双重编码。
+- Git 未加入 PATH 时使用便携版：`D:\dev\minigit\cmd\git.exe`。
