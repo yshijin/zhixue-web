@@ -125,7 +125,8 @@ function studentTableHTML() {
       '<td class="muted">' + esc(s.major) + ' · ' + esc(s.adminClass) + '</td>' +
       '<td>' + (score == null ? '<span class="muted">—</span>' : '<b>' + score + '</b> <span class="muted small">分</span>') + '</td>' +
       '<td>' + (score == null ? tag('未提交', 'amber') : tag('已完成', 'green')) + '</td>' +
-      '<td><button class="btn btn-sm btn-ghost" data-act="viewStudentReport" data-sid="' + s.id + '" data-paper="' + esc(paperId) + '" ' + (paperId ? '' : 'disabled') + '>' + icon('spark') + '查看报告</button></td></tr>';
+      '<td><div class="actions"><button class="btn btn-sm btn-ghost" data-act="viewStudentReport" data-sid="' + s.id + '" data-paper="' + esc(paperId) + '" ' + (paperId ? '' : 'disabled') + '>' + icon('spark') + '查看报告</button>' +
+      '<button class="btn btn-sm btn-danger" data-act="deleteStudent" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + icon('trash') + '删除</button></div></td></tr>';
   }).join('');
   html += '</tbody></table></div><div class="table-foot"><span>共 ' + list.length + ' 人 · 第 ' + page + ' / ' + pages + ' 页</span>' +
     '<span class="right row"><button class="btn btn-sm" data-act="stuPage" data-page="' + (page - 1) + '" ' + (page <= 1 ? 'disabled' : '') + '>上一页</button>' +

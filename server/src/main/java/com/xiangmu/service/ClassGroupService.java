@@ -123,7 +123,7 @@ public class ClassGroupService {
         return new ArrayList<>(names);
     }
 
-    private void refreshCourseClassCount(String courseId) {
+    public void refreshCourseClassCount(String courseId) {
         if (blank(courseId)) return;
         courses.findById(courseId).ifPresent(course -> {
             course.classCount = (int) classes.findAll().stream()

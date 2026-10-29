@@ -219,7 +219,8 @@ function viewCLTeachers() {
     DB.teachers.map(function (t) {
       return '<tr><td class="muted num">' + t.no + '</td><td class="cell-main">' + esc(t.name) + '</td><td>' + esc(t.classes) + '</td>' +
         '<td class="muted">' + t.phone + '</td><td>' + tag('启用', 'green') + '</td>' +
-        '<td><button class="btn btn-sm btn-ghost" data-act="resetPwd" data-name="' + esc(t.name) + '" data-id="' + esc(t.id) + '">重置密码</button></td></tr>';
+        '<td><div class="actions"><button class="btn btn-sm btn-ghost" data-act="resetPwd" data-name="' + esc(t.name) + '" data-id="' + esc(t.id) + '">重置密码</button>' +
+        '<button class="btn btn-sm btn-danger" data-act="deleteTeacher" data-name="' + esc(t.name) + '" data-id="' + esc(t.id) + '">' + icon('trash') + '删除</button></div></td></tr>';
     }).join('') + '</tbody></table></div></div>';
 
   return html;
@@ -319,6 +320,9 @@ function classDetailModal(cid) {
   var sum = DB.classSummaries.filter(function (x) { return x.classId === cid; })[0];
   if (!sum) return;
   var rate = pct(sum.completed, sum.expected);
+  var classStudents = DB.students.filter(function (s) { return s.classId === cid; }).sort(function (a, b) {
+    return String(a.no).localeCompare(String(b.no));
+  });
   var body = '<div class="report-head" style="box-shadow:none;margin-bottom:16px"><div class="rh-ico">' + icon('school') + '</div>' +
     '<div><h2>' + esc(c.name) + '</h2><div class="rh-meta"><span>' + esc(c.teacherName) + '</span><span>' + esc(c.major) + '</span><span>' + esc(c.term) + '</span></div></div>' +
     '<div class="rh-level"><span class="small muted">本次完成率</span><div class="lv" style="color:var(--primary)">' + rate + '%</div></div></div>' +
@@ -327,7 +331,16 @@ function classDetailModal(cid) {
     '<div><div class="small muted">平均分</div><b style="font-size:23px">' + sum.avg + '</b></div>' +
     '<div><div class="small muted">最高 / 最低</div><b style="font-size:23px">' + sum.max + ' / ' + sum.min + '</b></div></div>' +
     '<div class="progress-row"><span class="small muted" style="min-width:52px">完成情况</span><div class="progress green"><i style="width:' + rate + '%"></i></div><b>' + sum.completed + ' / ' + sum.expected + '</b></div>' +
-    '<div class="alert info mt16">' + icon('info') + '<div>教学班详情用于教学改进与资源支持，不用于教师个人排名。历史数据保留原教学班快照。</div></div>';
+    '<div class="alert info mt16">' + icon('info') + '<div>教学班详情用于教学改进与资源支持，不用于教师个人排名。历史数据保留原教学班快照。</div></div>' +
+    '<div class="card mt16"><div class="card-head"><h3>教学班学生</h3><span class="sub">共 ' + classStudents.length + ' 人</span></div>' +
+    (classStudents.length ? '<div class="table-wrap"><table class="tb"><thead><tr><th>学号</th><th>姓名</th><th>专业</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
+      classStudents.map(function (s) {
+        return '<tr><td class="muted num">' + esc(s.no) + '</td><td class="cell-main">' + esc(s.name) + '</td>' +
+          '<td class="muted small">' + esc(s.major || '—') + '</td><td>' + tag('在读', 'green') + '</td>' +
+          '<td><button class="btn btn-sm btn-danger" data-act="deleteStudent" data-id="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + icon('trash') + '删除</button></td></tr>';
+      }).join('') + '</tbody></table></div>' :
+      '<div class="card-body">' + emptyHTML('该教学班暂无学生', '教师可在“学生管理”中添加或导入学生。', 'users') + '</div>') +
+    '</div>';
   showModal(modalHead('教学班详情', '课程负责人视角 · ' + esc(c.term)) + '<div class="modal-body">' + body + '</div>' +
     '<div class="modal-foot"><button class="btn" data-act="closeModal">关闭</button>' +
     '<button class="btn btn-soft" data-act="export" data-kind="classSummary">' + icon('download') + '导出班级汇总</button></div>', 'wide');

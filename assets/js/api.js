@@ -65,6 +65,8 @@
     publishPaper: function (p) { return request('POST', 'api/papers', p); },
     endPaper: function (id) { return request('POST', 'api/papers/' + encodeURIComponent(id) + '/end', {}); },
     resetTeacherPassword: function (id) { return request('POST', 'api/teachers/' + encodeURIComponent(id) + '/reset-password', {}); },
+    deleteTeacher: function (id) { return request('DELETE', 'api/teachers/' + encodeURIComponent(id)); },
+    deleteStudent: function (id) { return request('DELETE', 'api/students/' + encodeURIComponent(id)); },
     audit: function (action, detail) { return request('POST', 'api/audit', { action: action, detail: detail }); },
 
     startAttempt: function (paperId) { return request('POST', 'api/attempts/start', { paperId: paperId }).then(withClock); },

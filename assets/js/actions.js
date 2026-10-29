@@ -422,6 +422,48 @@ function handleExport(kind, id) {
   render();
 }
 
+/* ---------------- 删除教师 / 学生 ---------------- */
+function teacherDeleteSummary(id) {
+  var teacher = DB.teachers.filter(function (t) { return t.id === id; })[0];
+  var classes = DB.classes.filter(function (c) { return c.teacherId === id; });
+  var classIds = classes.map(function (c) { return c.id; });
+  var students = DB.students.filter(function (s) { return classIds.indexOf(s.classId) > -1; });
+  var studentIds = {};
+  students.forEach(function (s) { studentIds[s.id] = true; });
+  var paperMap = {};
+  DB.papers.forEach(function (p) {
+    var related = p.teacherId === id;
+    if (!related) {
+      (p.classIds || []).forEach(function (cid) {
+        if (classIds.indexOf(cid) > -1) related = true;
+      });
+    }
+    if (related) paperMap[p.id] = p;
+  });
+  var attempts = DB.attempts.filter(function (a) {
+    return !!paperMap[a.paperId] || !!studentIds[a.studentId];
+  });
+  return {
+    teacher: teacher,
+    classes: classes,
+    students: students,
+    papers: Object.keys(paperMap).map(function (pid) { return paperMap[pid]; }),
+    attempts: attempts
+  };
+}
+
+function studentDeleteSummary(id) {
+  var student = STUDENT(id);
+  var group = student ? DB.classes.filter(function (c) { return c.id === student.classId; })[0] : null;
+  var attempts = DB.attempts.filter(function (a) { return a.studentId === id; });
+  return { student: student, group: group, attempts: attempts };
+}
+
+function deleteMetric(label, value) {
+  return '<div style="min-width:82px"><div class="small muted">' + label + '</div>' +
+    '<b style="font-size:22px;font-variant-numeric:tabular-nums">' + value + '</b></div>';
+}
+
 /* ---------------- 动作表 ---------------- */
 var ACTIONS = {
   noop: function () {},
@@ -444,6 +486,80 @@ var ACTIONS = {
       render();
       toast('已重置「' + name + '」的登录密码为 123456');
     } catch (e) { toast(e.message, 'err'); }
+  },
+  deleteTeacher: function (el) {
+    var id = el.dataset.id;
+    if (!id) { toast('缺少教师编号，请刷新页面重试', 'err'); return; }
+    var summary = teacherDeleteSummary(id);
+    if (!summary.teacher) { toast('教师不存在或已被删除', 'err'); return; }
+    var t = summary.teacher;
+    var classNames = summary.classes.map(function (c) { return esc(c.name); }).join('、') || '无';
+    showModal(modalHead('删除教师', '彻底删除教师账号及关联数据') +
+      '<div class="modal-body">' +
+      '<div class="alert danger">' + icon('alert') + '<div><b>此操作不可恢复。</b>教师账号、教学班、班内学生账号、关联试卷和全部作答记录将被永久删除。</div></div>' +
+      '<div class="report-text mt16">教师：<b>' + esc(t.name) + '</b>（' + esc(t.no) + '）<br>教学班：' + classNames + '</div>' +
+      '<div class="row mt16" style="gap:28px;flex-wrap:wrap">' +
+      deleteMetric('教学班', summary.classes.length) +
+      deleteMetric('学生', summary.students.length) +
+      deleteMetric('试卷', summary.papers.length) +
+      deleteMetric('作答记录', summary.attempts.length) + '</div>' +
+      '<div class="form-note mt12">删除后，这些教师、学生和试卷将不再出现在任何列表、统计、报告和导出数据中。</div>' +
+      '</div>' +
+      '<div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
+      '<button class="btn btn-danger" data-act="confirmDeleteTeacher" data-id="' + esc(id) + '">确认彻底删除</button></div>', 'wide');
+  },
+  confirmDeleteTeacher: async function (el) {
+    var id = el.dataset.id;
+    if (!id) { toast('缺少教师编号，请刷新页面重试', 'err'); return; }
+    var teacher = DB.teachers.filter(function (t) { return t.id === id; })[0];
+    var name = teacher ? teacher.name : '该教师';
+    el.disabled = true;
+    try {
+      await API.deleteTeacher(id);
+      await reloadDB();
+      closeModal();
+      render();
+      toast('已彻底删除教师「' + name + '」及关联数据');
+    } catch (e) {
+      el.disabled = false;
+      toast(e.message, 'err');
+    }
+  },
+  deleteStudent: function (el) {
+    var id = el.dataset.id;
+    if (!id) { toast('缺少学生编号，请刷新页面重试', 'err'); return; }
+    var summary = studentDeleteSummary(id);
+    if (!summary.student) { toast('学生不存在或已被删除', 'err'); return; }
+    var s = summary.student;
+    var groupName = summary.group ? summary.group.name : '未绑定教学班';
+    showModal(modalHead('删除学生', '彻底删除学生账号及作答数据') +
+      '<div class="modal-body">' +
+      '<div class="alert danger">' + icon('alert') + '<div><b>此操作不可恢复。</b>学生将无法继续登录，历史作答、成绩和报告将一并删除。</div></div>' +
+      '<div class="report-text mt16">学生：<b>' + esc(s.name) + '</b>（' + esc(s.no) + '）<br>' +
+      '教学班：' + esc(groupName) + '<br>专业：' + esc(s.major || '—') + '</div>' +
+      '<div class="row mt16" style="gap:28px;flex-wrap:wrap">' +
+      deleteMetric('作答记录', summary.attempts.length) + '</div>' +
+      '<div class="form-note mt12">删除后，该学生将从教学班人数、学生列表、统计、报告和导出数据中移除。</div>' +
+      '</div>' +
+      '<div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
+      '<button class="btn btn-danger" data-act="confirmDeleteStudent" data-id="' + esc(id) + '">确认彻底删除</button></div>', 'wide');
+  },
+  confirmDeleteStudent: async function (el) {
+    var id = el.dataset.id;
+    if (!id) { toast('缺少学生编号，请刷新页面重试', 'err'); return; }
+    var student = STUDENT(id);
+    var name = student ? student.name : '该学生';
+    el.disabled = true;
+    try {
+      await API.deleteStudent(id);
+      await reloadDB();
+      closeModal();
+      render();
+      toast('已彻底删除学生「' + name + '」及关联数据');
+    } catch (e) {
+      el.disabled = false;
+      toast(e.message, 'err');
+    }
   },
   logout: async function () {
     try { await API.logout(); } catch (e) {}
