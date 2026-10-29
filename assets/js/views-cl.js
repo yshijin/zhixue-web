@@ -14,6 +14,8 @@ function viewCLDashboard() {
   var qCount = DB.questions.length;
   var kpCount = DB.kps.length;
   var teacherCount = DB.teachers.length;
+  var courseCount = DB.courses.length;
+  var firstCourse = (DB.courses[0] && DB.courses[0].name) || '课程';
   var ongoing = DB.papers.filter(function (p) { return paperStatus(p).key === 'ongoing'; }).length;
   var weak = DB.kpAvg.slice().sort(function (a, b) { return a.avg - b.avg; }).slice(0, 5);
   var recent = DB.papers.slice().sort(function (a, b) {
@@ -25,15 +27,15 @@ function viewCLDashboard() {
     '<button class="btn btn-primary" data-act="go" data-to="cl/stats">' + icon('chart') + '课程统计</button>');
 
   html += '<div class="welcome"><h2>' + greeting() + '，' + esc(user.name) + '老师</h2>' +
-    '<p>当前负责《Java程序设计》等 2 门课程。今日有 ' + ongoing + ' 场测评进行中，建议关注各教学班的完成情况与薄弱知识点分布。</p>' +
+    '<p>当前负责《' + esc(firstCourse) + '》等 ' + courseCount + ' 门课程。今日有 ' + ongoing + ' 场测评进行中，建议关注各教学班的完成情况与薄弱知识点分布。</p>' +
     '<div class="welcome-actions"><button class="btn solid" data-act="go" data-to="cl/kps">查看知识点覆盖</button>' +
     '<button class="btn" data-act="go" data-to="cl/papers">试卷中心</button></div></div>';
 
   html += '<div class="stats">' +
-    statCard('课程数量', '2<small>门</small>', 'book', '') +
+    statCard('课程数量', courseCount + '<small>门</small>', 'book', '') +
     statCard('知识点', kpCount + '<small>个</small>', 'layers', 'purple', '全部为平级知识点') +
     statCard('题库总量', qCount + '<small>题</small>', 'database', 'green', '单选 / 多选 / 判断') +
-    statCard('任课教师', teacherCount + '<small>人</small>', 'users', 'amber', '覆盖 3 个教学班') +
+    statCard('任课教师', teacherCount + '<small>人</small>', 'users', 'amber', '覆盖 ' + DB.classes.length + ' 个教学班') +
     '</div>';
 
   html += '<div class="grid-2-1">' +
@@ -231,7 +233,7 @@ function viewCLClasses() {
   html += '<div class="grid-3">' + DB.classes.map(function (c) {
     var sum = DB.classSummaries.filter(function (s) { return s.classId === c.id; })[0] || { expected: c.count, completed: c.count, avg: 76 };
     return '<div class="class-card"><div class="row"><h3>' + esc(c.name) + '</h3><span class="right tag blue">' + esc(c.term) + '</span></div>' +
-      '<div class="cc-teacher">' + esc(c.teacherName) + ' · ' + esc(c.major) + '</div>' +
+      '<div class="cc-teacher">' + esc(c.teacherName) + '</div>' +
       '<div class="kpis"><div><b>' + c.count + '</b><span>学生</span></div><div><b>' + sum.completed + '</b><span>已提交</span></div>' +
       '<div><b>' + sum.avg + '</b><span>平均分</span></div></div>' +
       '<div class="mt12 progress-row"><span class="small muted">完成率</span><div class="progress"><i style="width:' + pct(sum.completed, sum.expected) + '%"></i></div><b>' + pct(sum.completed, sum.expected) + '%</b></div>' +

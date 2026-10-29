@@ -6,6 +6,7 @@ import com.xiangmu.repo.*;
 import com.xiangmu.security.AppPrincipal;
 import com.xiangmu.service.ApiMapper;
 import com.xiangmu.service.AuditService;
+import com.xiangmu.service.ClassGroupService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,11 +29,12 @@ public class ManageController {
     private final ApiMapper mapper;
     private final AuditService audit;
     private final PasswordEncoder encoder;
+    private final ClassGroupService classGroupService;
 
     public ManageController(KnowledgePointRepo kps, QuestionRepo questions, TeacherRepo teachers,
                             StudentRepo students, CourseRepo courses, ClassGroupRepo classes,
                             PaperRepo papers, UserRepo users, ApiMapper mapper, AuditService audit,
-                            PasswordEncoder encoder) {
+                            PasswordEncoder encoder, ClassGroupService classGroupService) {
         this.kps = kps;
         this.questions = questions;
         this.teachers = teachers;
@@ -44,6 +46,7 @@ public class ManageController {
         this.mapper = mapper;
         this.audit = audit;
         this.encoder = encoder;
+        this.classGroupService = classGroupService;
     }
 
     public record AuditRequest(String action, String detail) {}
@@ -111,10 +114,15 @@ public class ManageController {
         t.no = no.trim();
         t.name = name.trim();
         t.courseId = p.courseId == null ? "c1" : p.courseId;
-        t.classes = text(body, "classes");
         t.phone = text(body, "phone");
         t.status = "active";
+
+        ClassGroupService.BindingPlan plan = classGroupService.plan(t, text(body, "classes"));
+        if (plan.hasErrors()) throw ApiException.bad(String.join("；", plan.errors()));
+        t.classes = classGroupService.joinNames(plan.names());
         teachers.save(t);
+        classGroupService.apply(t, plan);
+
         UserAccount u = new UserAccount();
         u.id = t.id;
         u.username = uniqueUsername(t.no.toLowerCase(Locale.ROOT));
@@ -125,6 +133,32 @@ public class ManageController {
         users.save(u);
         audit.log(p, "账号", "新增教师账号「" + t.name + "」（" + t.no + "）");
         return mapper.teacher(t);
+    }
+
+    @PostMapping("/classes")
+    @Transactional
+    public Map<String, Object> addClass(@AuthenticationPrincipal AppPrincipal p, @RequestBody Map<String, Object> body) {
+        requireCl(p);
+        String name = text(body, "name");
+        String teacherId = text(body, "teacherId");
+        if (name == null || name.isBlank()) throw ApiException.bad("请填写教学班名称");
+        if (teacherId == null || teacherId.isBlank()) throw ApiException.bad("请选择任课教师");
+        Teacher teacher = teachers.findById(teacherId).orElseThrow(() -> ApiException.bad("教师不存在"));
+        if (p.courseId != null && teacher.courseId != null && !p.courseId.equals(teacher.courseId)) {
+            throw ApiException.forbidden("不能为其他课程的教师创建教学班");
+        }
+        String courseId = teacher.courseId != null ? teacher.courseId : p.courseId;
+        if (courseId == null) courseId = "c1";
+        String resolvedCourseId = courseId;
+        teacher.courseId = resolvedCourseId;
+        boolean duplicate = classes.findAll().stream()
+                .filter(c -> resolvedCourseId.equals(c.courseId))
+                .anyMatch(c -> name.trim().equalsIgnoreCase(c.name == null ? "" : c.name.trim()));
+        if (duplicate) throw ApiException.bad("本课程已存在同名教学班");
+        ClassGroup group = classGroupService.createForTeacher(teacher, name.trim(), text(body, "major"), text(body, "term"));
+        teachers.save(teacher);
+        audit.log(p, "教学班", "新增教学班「" + group.name + "」，任课教师「" + teacher.name + "」");
+        return mapper.classGroup(group);
     }
 
     @PostMapping("/students")

@@ -4,6 +4,7 @@ import com.xiangmu.domain.*;
 import com.xiangmu.repo.*;
 import com.xiangmu.security.AppPrincipal;
 import com.xiangmu.service.AuditService;
+import com.xiangmu.service.ClassGroupService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,10 +23,12 @@ public class ImportController {
     private final UserRepo users;
     private final PasswordEncoder encoder;
     private final AuditService audit;
+    private final ClassGroupService classGroupService;
 
     public ImportController(KnowledgePointRepo kps, QuestionRepo questions, TeacherRepo teachers,
                             StudentRepo students, ClassGroupRepo classes, UserRepo users,
-                            PasswordEncoder encoder, AuditService audit) {
+                            PasswordEncoder encoder, AuditService audit,
+                            ClassGroupService classGroupService) {
         this.kps = kps;
         this.questions = questions;
         this.teachers = teachers;
@@ -34,9 +37,12 @@ public class ImportController {
         this.users = users;
         this.encoder = encoder;
         this.audit = audit;
+        this.classGroupService = classGroupService;
     }
 
     public record ImportRequest(List<List<String>> rows, boolean commit) {}
+
+    private record TeacherImportRow(Teacher teacher, ClassGroupService.BindingPlan plan) {}
 
     @PostMapping("/{kind}")
     @Transactional
@@ -134,7 +140,8 @@ public class ImportController {
     private int importTeachers(AppPrincipal p, List<List<String>> rows, int from, Map<String, Integer> h,
                                boolean commit, List<String> errors, List<String> warnings) {
         Set<String> seen = new HashSet<>();
-        List<Teacher> pending = new ArrayList<>();
+        Map<String, String> claimedClasses = new HashMap<>();
+        List<TeacherImportRow> pending = new ArrayList<>();
         for (int i = from; i < rows.size(); i++) {
             List<String> row = rows.get(i);
             String no = cell(row, h, "教师工号", "工号", "no");
@@ -153,14 +160,42 @@ public class ImportController {
             t.no = no.trim();
             t.name = name.trim();
             t.courseId = p.courseId == null ? "c1" : p.courseId;
-            t.classes = blank(classes) ? null : classes.trim();
             t.phone = blank(phone) ? null : phone.trim();
             t.status = "active";
-            pending.add(t);
+
+            ClassGroupService.BindingPlan plan = classGroupService.plan(t, classes);
+            if (plan.hasErrors()) {
+                errors.add(where + String.join("；", plan.errors()));
+                continue;
+            }
+            // 同一份文件里不能有两个教师同时认领同一个教学班。
+            String conflict = null;
+            for (ClassGroupService.PlannedClass pc : plan.classes()) {
+                String key = pc.existing() != null
+                        ? "id:" + pc.existing().id
+                        : "name:" + pc.name().toLowerCase(Locale.ROOT);
+                String other = claimedClasses.putIfAbsent(key, t.no);
+                if (other != null) {
+                    conflict = "教学班「" + pc.name() + "」在文件中同时分配给了工号 " + other + " 和 " + t.no;
+                    break;
+                }
+            }
+            if (conflict != null) {
+                errors.add(where + conflict);
+                continue;
+            }
+            if (plan.names().isEmpty()) {
+                warnings.add(where + "未填写教学班名称，教师账号可登录，但需要课程负责人后续绑定教学班");
+            }
+            t.classes = classGroupService.joinNames(plan.names());
+            pending.add(new TeacherImportRow(t, plan));
         }
         if (commit) {
-            for (Teacher t : pending) {
+            int classCount = 0;
+            for (TeacherImportRow row : pending) {
+                Teacher t = row.teacher();
                 teachers.save(t);
+                classCount += classGroupService.apply(t, row.plan()).size();
                 UserAccount u = new UserAccount();
                 u.id = t.id;
                 u.username = uniqueUsername(t.no.toLowerCase(Locale.ROOT));
@@ -170,7 +205,9 @@ public class ImportController {
                 u.courseId = t.courseId;
                 users.save(u);
             }
-            if (!pending.isEmpty()) audit.log(p, "导入", "批量导入教师 " + pending.size() + " 人");
+            if (!pending.isEmpty()) {
+                audit.log(p, "导入", "批量导入教师 " + pending.size() + " 人，绑定/创建教学班 " + classCount + " 个");
+            }
         }
         return pending.size();
     }

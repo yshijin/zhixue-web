@@ -153,19 +153,28 @@ function openAddTeacher() {
     '<div class="modal-body"><div class="form-grid">' +
     '<div class="field"><label>教师工号<i>*</i></label><input class="input" id="ftNo" placeholder="如 T0005"></div>' +
     '<div class="field"><label>教师姓名<i>*</i></label><input class="input" id="ftName" placeholder="真实姓名"></div>' +
-    '<div class="field"><label>教学班</label><input class="input" id="ftClass" value="软件24201"></div>' +
+    '<div class="field"><label>教学班</label><input class="input" id="ftClass" placeholder="如 软件24203；多个用、分隔"></div>' +
     '<div class="field"><label>手机号</label><input class="input" id="ftPhone" placeholder="选填"></div>' +
     '</div><div class="form-note mt12">初始密码由系统随机生成，首次登录后修改。</div></div>' +
     '<div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
     '<button class="btn btn-primary" data-act="saveTeacher">保存</button></div>');
 }
 function openAddStudent() {
-  showModal(modalHead('添加学生', '仅可添加到本人教学班') +
+  if (!DB.classes.length) {
+    toast(user.role === 'teacher' ? '当前账号尚未绑定教学班，请联系课程负责人' : '请先创建教学班', 'err');
+    return;
+  }
+  var first = DB.classes[0];
+  var options = DB.classes.map(function (c) {
+    return '<option value="' + c.id + '">' + esc(c.name) + '（' + c.count + ' 人）</option>';
+  }).join('');
+  showModal(modalHead('添加学生', user.role === 'teacher' ? '仅可添加到本人教学班' : '课程负责人可添加到任意教学班') +
     '<div class="modal-body"><div class="form-grid">' +
     '<div class="field"><label>学号<i>*</i></label><input class="input" id="fsNo" placeholder="如 20260041"></div>' +
     '<div class="field"><label>姓名<i>*</i></label><input class="input" id="fsName" placeholder="学生姓名"></div>' +
+    '<div class="field full"><label>教学班<i>*</i></label><select class="select" id="fsClass">' + options + '</select></div>' +
     '<div class="field"><label>专业</label><input class="input" id="fsMajor" value="软件工程"></div>' +
-    '<div class="field"><label>行政班</label><input class="input" id="fsAdmin" value="软件24201"></div>' +
+    '<div class="field"><label>行政班</label><input class="input" id="fsAdmin" value="' + esc(first.name) + '"></div>' +
     '</div><div class="form-note mt12">登录账号默认为学号，初始密码首次登录设置。</div></div>' +
     '<div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
     '<button class="btn btn-primary" data-act="saveStudent">保存</button></div>');
@@ -202,7 +211,7 @@ var IMPORT_META = {
   teacher: {
     title: '批量导入教师',
     cols: '教师工号 / 教师姓名 / 教学班名称 / 手机号 / 邮箱',
-    note: '工号与姓名必填；工号重复时提示错误，不静默跳过。',
+    note: '工号与姓名必填；教学班不存在时会自动创建并绑定。教学班已被其他教师占用时会报错，不会静默改绑。',
     sample: [['教师工号', '教师姓名', '教学班名称', '手机号', '邮箱'], ['T0005', '赵敏', '软件24203', '13800000000', ''], ['T0006', '孙杰', '软件24204', '', '']],
     success: 2, warn: 0, fail: 0,
     lines: [['ok', '第 1-2 行：工号与教学班校验通过，等待确认入库']]
@@ -366,11 +375,15 @@ function handleExport(kind, id) {
   var date = new Date().toISOString().slice(0, 10);
   if (kind === 'students') {
     name = '学生测试明细';
+    var paper = (id && PAPER(id)) || PAPER(S.statPaper) || myPapers()[0] || DB.papers[0];
+    if (!paper) { toast('暂无可导出的试卷数据', 'err'); return; }
+    var perf = perfFor(paper);
+    var classLabel = DB.classes.filter(function (c) { return paper.classIds.indexOf(c.id) > -1; })
+      .map(function (c) { return c.name; }).join('、') || '—';
     rows.push(['学号', '姓名', '教学班', '测评', '得分', '满分', '提交时间']);
-    var perf = perfFor(PAPER(S.statPaper) || PAPER('p1'));
     perf.rows.forEach(function (r) {
       if (r.score == null) return;
-      rows.push([r.student.no, r.student.name, '软件24201', (PAPER(S.statPaper) || PAPER('p1')).name, r.score, perf.total, fmtFull(r.submittedAt)]);
+      rows.push([r.student.no, r.student.name, classLabel, paper.name, r.score, perf.total, fmtFull(r.submittedAt)]);
     });
   } else if (kind === 'kps') {
     name = '知识点统计';
@@ -543,8 +556,8 @@ var ACTIONS = {
     if (DB.teachers.some(function (t) { return t.no === no; })) { toast('教师工号已存在', 'err'); return; }
     try {
       await API.addTeacher({
-        no: no, name: name, classes: ($('#ftClass').value || '—'),
-        phone: ($('#ftPhone').value || '—')
+        no: no, name: name, classes: ($('#ftClass').value || '').trim(),
+        phone: ($('#ftPhone').value || '').trim()
       });
       await reloadDB();
       closeModal(); render(); toast('教师已新增（初始密码 123456）');
@@ -553,12 +566,15 @@ var ACTIONS = {
   saveStudent: async function () {
     var no = ($('#fsNo').value || '').trim();
     var name = ($('#fsName').value || '').trim();
+    var classId = $('#fsClass') ? $('#fsClass').value : '';
     if (!no || !name) { toast('学号和姓名不能为空', 'err'); return; }
+    if (!classId) { toast('请选择教学班', 'err'); return; }
     if (DB.students.some(function (s) { return s.no === no; })) { toast('学号已存在', 'err'); return; }
+    var cls = DB.classes.filter(function (c) { return c.id === classId; })[0];
     try {
       await API.addStudent({
-        no: no, name: name, classId: 'c1',
-        major: ($('#fsMajor').value || '软件工程'), adminClass: ($('#fsAdmin').value || '软件24201')
+        no: no, name: name, classId: classId,
+        major: ($('#fsMajor').value || '软件工程'), adminClass: ($('#fsAdmin').value || (cls ? cls.name : ''))
       });
       await reloadDB();
       closeModal(); render(); toast('学生已添加（初始密码 123456）');
@@ -653,10 +669,11 @@ var ACTIONS = {
     var w = S.wizard;
     if (!w.paper || !w.paper.length || w.error) { toast('试卷尚未生成或存在缺口', 'err'); return; }
     var ids = w.classIds;
+    var targetClass = DB.classes.filter(function (c) { return ids.indexOf(c.id) > -1; })[0];
     var className = DB.classes.filter(function (c) { return ids.indexOf(c.id) > -1; }).map(function (c) { return c.name; }).join('、');
     var p = {
       name: w.name,
-      courseId: 'c1',
+      courseId: targetClass ? targetClass.courseId : (user.courseId || 'c1'),
       classIds: ids.slice(),
       items: w.paper.map(function (it) { return { qid: it.qid, score: it.score }; }),
       startAt: new Date(w.start).toISOString(),

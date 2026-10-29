@@ -338,9 +338,13 @@ function pseudoAttempt(student, paperId, target) {
   };
 }
 function perfFor(p) {
-  var classInfo = DB.classes.filter(function (c) { return c.id === p.classIds[0]; })[0] || { count: 40 };
-  var expected = classInfo.count || DB.students.length;
-  var rows = DB.students.map(function (s) {
+  var classIds = p.classIds || [];
+  var classStudents = DB.students.filter(function (s) { return classIds.indexOf(s.classId) > -1; });
+  if (!classIds.length) classStudents = DB.students;
+  var targetClasses = DB.classes.filter(function (c) { return classIds.indexOf(c.id) > -1; });
+  var expected = targetClasses.reduce(function (a, c) { return a + (c.count || 0); }, 0);
+  if (!expected) expected = classStudents.length;
+  var rows = classStudents.map(function (s) {
     var att = DB.attempts.filter(function (a) {
       return a.paperId === p.id && a.studentId === s.id && a.status !== 'in_progress';
     }).sort(function (a, b) { return new Date(b.submittedAt) - new Date(a.submittedAt); })[0];
@@ -506,6 +510,7 @@ var S = {
   stu: { kw: '', page: 1 },
   statPaper: 'p1',
   progressPaper: 'p1',
+  reportPaper: 'p1',
   paperFilter: 'all',
   wizard: null,
   exam: null,
