@@ -67,6 +67,11 @@
     resetTeacherPassword: function (id) { return request('POST', 'api/teachers/' + encodeURIComponent(id) + '/reset-password', {}); },
     deleteTeacher: function (id) { return request('DELETE', 'api/teachers/' + encodeURIComponent(id)); },
     deleteStudent: function (id) { return request('DELETE', 'api/students/' + encodeURIComponent(id)); },
+    deleteCourse: function (id) { return request('DELETE', 'api/courses/' + encodeURIComponent(id)); },
+    deleteKp: function (id) { return request('DELETE', 'api/kps/' + encodeURIComponent(id)); },
+    deleteQuestion: function (id) { return request('DELETE', 'api/questions/' + encodeURIComponent(id)); },
+    deleteClass: function (id) { return request('DELETE', 'api/classes/' + encodeURIComponent(id)); },
+    deletePaper: function (id) { return request('DELETE', 'api/papers/' + encodeURIComponent(id)); },
     audit: function (action, detail) { return request('POST', 'api/audit', { action: action, detail: detail }); },
 
     startAttempt: function (paperId) { return request('POST', 'api/attempts/start', { paperId: paperId }).then(withClock); },

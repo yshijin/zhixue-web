@@ -443,6 +443,320 @@ public class ManageController {
         return result;
     }
 
+    /**
+     * 彻底删除课程及其课程下的知识点、题目、教师、教学班、学生、关联试卷和作答记录。
+     * 当前登录账号所属课程禁止删除，避免账号上下文失效。
+     */
+    @DeleteMapping("/courses/{id}")
+    @Transactional
+    public Map<String, Object> deleteCourse(@AuthenticationPrincipal AppPrincipal p, @PathVariable String id) {
+        requireCl(p);
+        Course course = courses.findById(id).orElseThrow(() -> ApiException.notFound("课程不存在"));
+        if (course.id.equals(p.courseId)) {
+            throw ApiException.conflict("当前账号所属课程不能删除，请先切换课程");
+        }
+
+        List<ClassGroup> relatedClasses = new ArrayList<>();
+        Set<String> classIds = new HashSet<>();
+        Set<String> boundTeacherIds = new HashSet<>();
+        for (ClassGroup group : classes.findAll()) {
+            if (id.equals(group.courseId)) {
+                relatedClasses.add(group);
+                if (group.id != null) classIds.add(group.id);
+                if (group.teacherId != null) boundTeacherIds.add(group.teacherId);
+            }
+        }
+
+        List<Teacher> relatedTeachers = new ArrayList<>();
+        Set<String> teacherIds = new HashSet<>();
+        for (Teacher teacher : teachers.findAll()) {
+            if (id.equals(teacher.courseId) || boundTeacherIds.contains(teacher.id)) {
+                relatedTeachers.add(teacher);
+                if (teacher.id != null) teacherIds.add(teacher.id);
+            }
+        }
+
+        List<KnowledgePoint> relatedKps = new ArrayList<>();
+        Set<String> kpIds = new HashSet<>();
+        for (KnowledgePoint kp : kps.findAll()) {
+            if (id.equals(kp.courseId)) {
+                relatedKps.add(kp);
+                if (kp.id != null) kpIds.add(kp.id);
+            }
+        }
+
+        List<Question> relatedQuestions = new ArrayList<>();
+        Set<String> questionIds = new HashSet<>();
+        for (Question question : questions.findAll()) {
+            if (question.kpId != null && kpIds.contains(question.kpId)) {
+                relatedQuestions.add(question);
+                if (question.id != null) questionIds.add(question.id);
+            }
+        }
+
+        List<Student> relatedStudents = new ArrayList<>();
+        Set<String> studentIds = new HashSet<>();
+        for (Student student : students.findAll()) {
+            if (student.classId != null && classIds.contains(student.classId)) {
+                relatedStudents.add(student);
+                if (student.id != null) studentIds.add(student.id);
+            }
+        }
+
+        List<Paper> relatedPapers = new ArrayList<>();
+        Set<String> paperIds = new HashSet<>();
+        for (Paper paper : papers.findAll()) {
+            if (id.equals(paper.courseId)
+                    || paperTargetsAnyClass(paper, classIds)
+                    || paperUsesAnyQuestion(paper, questionIds)) {
+                relatedPapers.add(paper);
+                if (paper.id != null) paperIds.add(paper.id);
+            }
+        }
+
+        List<Attempt> relatedAttempts = relatedAttempts(paperIds, studentIds);
+        deleteRelated(relatedAttempts, relatedPapers, relatedQuestions, relatedKps, relatedStudents, relatedClasses);
+        Set<String> userIds = new LinkedHashSet<>(studentIds);
+        userIds.addAll(teacherIds);
+        users.deleteAllById(new ArrayList<>(userIds));
+        teachers.deleteAllInBatch(relatedTeachers);
+        courses.delete(course);
+
+        audit.log(p, "账号", "删除课程「" + course.name + "」，级联删除知识点 " + relatedKps.size()
+                + " 个、题目 " + relatedQuestions.size() + " 道、教师 " + relatedTeachers.size()
+                + " 人、教学班 " + relatedClasses.size() + " 个、学生 " + relatedStudents.size()
+                + " 人、试卷 " + relatedPapers.size() + " 份、作答 " + relatedAttempts.size() + " 条");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", true);
+        result.put("message", "课程及关联数据已彻底删除");
+        result.put("course", course.name);
+        result.put("kps", relatedKps.size());
+        result.put("questions", relatedQuestions.size());
+        result.put("teachers", relatedTeachers.size());
+        result.put("classes", relatedClasses.size());
+        result.put("students", relatedStudents.size());
+        result.put("papers", relatedPapers.size());
+        result.put("attempts", relatedAttempts.size());
+        return result;
+    }
+
+    /**
+     * 删除知识点时同时删除其下题目；若这些题目已被试卷引用，则连同相关试卷和作答一并删除，
+     * 避免试卷快照指向不存在的题目。
+     */
+    @DeleteMapping("/kps/{id}")
+    @Transactional
+    public Map<String, Object> deleteKp(@AuthenticationPrincipal AppPrincipal p, @PathVariable String id) {
+        requireCl(p);
+        KnowledgePoint kp = kps.findById(id).orElseThrow(() -> ApiException.notFound("知识点不存在"));
+        if (p.courseId != null && kp.courseId != null && !p.courseId.equals(kp.courseId)) {
+            throw ApiException.forbidden("不能删除其他课程的知识点");
+        }
+
+        List<Question> relatedQuestions = new ArrayList<>();
+        Set<String> questionIds = new HashSet<>();
+        for (Question question : questions.findAll()) {
+            if (id.equals(question.kpId)) {
+                relatedQuestions.add(question);
+                if (question.id != null) questionIds.add(question.id);
+            }
+        }
+        List<Paper> relatedPapers = papersUsingQuestions(questionIds);
+        Set<String> paperIds = new HashSet<>();
+        for (Paper paper : relatedPapers) paperIds.add(paper.id);
+        List<Attempt> relatedAttempts = relatedAttempts(paperIds, Set.of());
+
+        attempts.deleteAllInBatch(relatedAttempts);
+        papers.deleteAllInBatch(relatedPapers);
+        questions.deleteAllInBatch(relatedQuestions);
+        kps.delete(kp);
+
+        audit.log(p, "题库", "删除知识点「" + kp.name + "」，级联删除题目 " + relatedQuestions.size()
+                + " 道、试卷 " + relatedPapers.size() + " 份、作答 " + relatedAttempts.size() + " 条");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", true);
+        result.put("message", "知识点及关联题目已彻底删除");
+        result.put("kp", kp.name);
+        result.put("questions", relatedQuestions.size());
+        result.put("papers", relatedPapers.size());
+        result.put("attempts", relatedAttempts.size());
+        return result;
+    }
+
+    /**
+     * 删除题目时连同引用它的试卷和作答一并删除，避免试卷详情和统计出现空题。
+     */
+    @DeleteMapping("/questions/{id}")
+    @Transactional
+    public Map<String, Object> deleteQuestion(@AuthenticationPrincipal AppPrincipal p, @PathVariable String id) {
+        requireCl(p);
+        Question question = questions.findById(id).orElseThrow(() -> ApiException.notFound("题目不存在"));
+        KnowledgePoint kp = question.kpId == null ? null : kps.findById(question.kpId).orElse(null);
+        if (kp != null && p.courseId != null && kp.courseId != null && !p.courseId.equals(kp.courseId)) {
+            throw ApiException.forbidden("不能删除其他课程的题目");
+        }
+
+        List<Paper> relatedPapers = papersUsingQuestions(Set.of(question.id));
+        Set<String> paperIds = new HashSet<>();
+        for (Paper paper : relatedPapers) paperIds.add(paper.id);
+        List<Attempt> relatedAttempts = relatedAttempts(paperIds, Set.of());
+
+        attempts.deleteAllInBatch(relatedAttempts);
+        papers.deleteAllInBatch(relatedPapers);
+        questions.delete(question);
+
+        audit.log(p, "题库", "删除题目「" + question.id + "」，级联删除试卷 " + relatedPapers.size()
+                + " 份、作答 " + relatedAttempts.size() + " 条");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", true);
+        result.put("message", "题目及引用试卷已彻底删除");
+        result.put("question", question.id);
+        result.put("papers", relatedPapers.size());
+        result.put("attempts", relatedAttempts.size());
+        return result;
+    }
+
+    /**
+     * 删除教学班及其学生账号、该班关联试卷和全部作答，并同步教师教学班文本与课程班级数。
+     */
+    @DeleteMapping("/classes/{id}")
+    @Transactional
+    public Map<String, Object> deleteClass(@AuthenticationPrincipal AppPrincipal p, @PathVariable String id) {
+        requireCl(p);
+        ClassGroup group = classes.findById(id).orElseThrow(() -> ApiException.notFound("教学班不存在"));
+        if (p.courseId != null && group.courseId != null && !p.courseId.equals(group.courseId)) {
+            throw ApiException.forbidden("不能删除其他课程的教学班");
+        }
+
+        List<Student> relatedStudents = new ArrayList<>();
+        Set<String> studentIds = new HashSet<>();
+        for (Student student : students.findAll()) {
+            if (id.equals(student.classId)) {
+                relatedStudents.add(student);
+                if (student.id != null) studentIds.add(student.id);
+            }
+        }
+
+        List<Paper> relatedPapers = new ArrayList<>();
+        Set<String> paperIds = new HashSet<>();
+        for (Paper paper : papers.findAll()) {
+            if (paperTargetsAnyClass(paper, Set.of(id))) {
+                relatedPapers.add(paper);
+                if (paper.id != null) paperIds.add(paper.id);
+            }
+        }
+        List<Attempt> relatedAttempts = relatedAttempts(paperIds, studentIds);
+
+        attempts.deleteAllInBatch(relatedAttempts);
+        papers.deleteAllInBatch(relatedPapers);
+        users.deleteAllById(new ArrayList<>(studentIds));
+        students.deleteAllInBatch(relatedStudents);
+        classes.delete(group);
+        refreshTeacherClassNames(group.teacherId);
+        classGroupService.refreshCourseClassCount(group.courseId);
+
+        audit.log(p, "教学班", "删除教学班「" + group.name + "」，级联删除学生 " + relatedStudents.size()
+                + " 人、试卷 " + relatedPapers.size() + " 份、作答 " + relatedAttempts.size() + " 条");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", true);
+        result.put("message", "教学班及关联数据已彻底删除");
+        result.put("class", group.name);
+        result.put("students", relatedStudents.size());
+        result.put("papers", relatedPapers.size());
+        result.put("attempts", relatedAttempts.size());
+        return result;
+    }
+
+    /**
+     * 彻底删除试卷及其全部作答记录。教师只能删除本人发布的试卷。
+     */
+    @DeleteMapping("/papers/{id}")
+    @Transactional
+    public Map<String, Object> deletePaper(@AuthenticationPrincipal AppPrincipal p, @PathVariable String id) {
+        requireStaff(p);
+        Paper paper = papers.findById(id).orElseThrow(() -> ApiException.notFound("试卷不存在"));
+        if ("teacher".equals(p.role) && !p.id.equals(paper.teacherId)) {
+            throw ApiException.forbidden("不能删除其他教师的试卷");
+        }
+        if ("course_leader".equals(p.role) && p.courseId != null && paper.courseId != null
+                && !p.courseId.equals(paper.courseId)) {
+            throw ApiException.forbidden("不能删除其他课程的试卷");
+        }
+
+        List<Attempt> relatedAttempts = new ArrayList<>();
+        for (Attempt attempt : attempts.findAll()) {
+            if (id.equals(attempt.paperId)) relatedAttempts.add(attempt);
+        }
+        attempts.deleteAllInBatch(relatedAttempts);
+        papers.delete(paper);
+
+        audit.log(p, "组卷", "删除试卷「" + paper.name + "」，级联删除作答 " + relatedAttempts.size() + " 条");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", true);
+        result.put("message", "试卷及作答记录已彻底删除");
+        result.put("paper", paper.name);
+        result.put("attempts", relatedAttempts.size());
+        return result;
+    }
+
+    private void deleteRelated(List<Attempt> relatedAttempts, List<Paper> relatedPapers,
+                               List<Question> relatedQuestions, List<KnowledgePoint> relatedKps,
+                               List<Student> relatedStudents, List<ClassGroup> relatedClasses) {
+        attempts.deleteAllInBatch(relatedAttempts);
+        papers.deleteAllInBatch(relatedPapers);
+        questions.deleteAllInBatch(relatedQuestions);
+        kps.deleteAllInBatch(relatedKps);
+        students.deleteAllInBatch(relatedStudents);
+        classes.deleteAllInBatch(relatedClasses);
+    }
+
+    private List<Attempt> relatedAttempts(Set<String> paperIds, Set<String> studentIds) {
+        List<Attempt> result = new ArrayList<>();
+        for (Attempt attempt : attempts.findAll()) {
+            if (paperIds.contains(attempt.paperId) || studentIds.contains(attempt.studentId)) {
+                result.add(attempt);
+            }
+        }
+        return result;
+    }
+
+    private List<Paper> papersUsingQuestions(Set<String> questionIds) {
+        List<Paper> result = new ArrayList<>();
+        if (questionIds.isEmpty()) return result;
+        for (Paper paper : papers.findAll()) {
+            if (paperUsesAnyQuestion(paper, questionIds)) result.add(paper);
+        }
+        return result;
+    }
+
+    private boolean paperUsesAnyQuestion(Paper paper, Set<String> questionIds) {
+        if (questionIds.isEmpty() || paper.itemsJson == null) return false;
+        List<Map<String, Object>> items = mapper.read(paper.itemsJson,
+                new TypeReference<List<Map<String, Object>>>() {}, List.of());
+        for (Map<String, Object> item : items) {
+            if (item.get("qid") != null && questionIds.contains(String.valueOf(item.get("qid")))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void refreshTeacherClassNames(String teacherId) {
+        if (teacherId == null) return;
+        teachers.findById(teacherId).ifPresent(teacher -> {
+            teacher.classes = classGroupService.joinNames(classes.findAll().stream()
+                    .filter(group -> teacherId.equals(group.teacherId))
+                    .map(group -> group.name)
+                    .toList());
+            teachers.save(teacher);
+        });
+    }
+
     private boolean paperTargetsAnyClass(Paper paper, Set<String> classIds) {
         if (classIds.isEmpty()) return false;
         List<String> targetIds = mapper.read(paper.classIdsJson,

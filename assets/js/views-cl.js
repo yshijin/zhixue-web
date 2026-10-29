@@ -84,25 +84,36 @@ function viewCLCourses() {
   var html = pageHead('课程管理', '维护课程基本信息、学期与负责人',
     '<button class="btn btn-primary" data-act="openAddCourse">' + icon('plus') + '新建课程</button>');
 
-  html += '<div class="alert info mb16">' + icon('info') + '<div>同一课程可关联多个教师与多个教学班；课程停用后不允许新建测评，但历史试卷、作答与统计数据仍可查询。</div></div>';
+  html += '<div class="alert info mb16">' + icon('info') + '<div>同一课程可关联多个教师与多个教学班；课程停用后不允许新建测评，但历史试卷、作答与统计数据仍可查询。当前登录账号所属课程受保护，不能删除；其他课程可彻底删除。</div></div>';
 
   html += '<div class="course-cards">' + DB.courses.map(function (c, i) {
-    var kpCount = c.id === 'c1' ? DB.kps.length : 16;
+    var kpCount = DB.kps.filter(function (k) { return k.courseId === c.id; }).length;
+    var teacherCount = DB.teachers.filter(function (t) { return t.courseId === c.id; }).length;
+    var classCount = DB.classes.filter(function (x) { return x.courseId === c.id; }).length;
+    var current = c.id === user.courseId;
+    var deleteBtn = current
+      ? '<button class="btn btn-sm" disabled title="当前账号所属课程不可删除">' + icon('trash') + '删除</button>'
+      : '<button class="btn btn-sm btn-danger" data-act="deleteEntity" data-kind="course" data-id="' + esc(c.id) + '">' + icon('trash') + '删除</button>';
     return '<div class="course-card"><div class="cc-top"><div class="course-ico ' + (i ? 'green' : '') + '">' + icon('book') + '</div>' +
       '<div class="grow"><h3>' + esc(c.name) + '</h3><div class="code">' + esc(c.code) + '</div></div>' +
       tag(c.status === 'active' ? '进行中' : '已停用', c.status === 'active' ? 'green' : 'gray') + '</div>' +
-      '<div class="cc-meta"><div><b>' + kpCount + '</b>知识点</div><div><b>' + (c.id === 'c1' ? DB.teachers.length : 2) + '</b>教师</div>' +
-      '<div><b>' + (c.id === 'c1' ? 3 : 2) + '</b>教学班</div></div>' +
+      '<div class="cc-meta"><div><b>' + kpCount + '</b>知识点</div><div><b>' + teacherCount + '</b>教师</div>' +
+      '<div><b>' + classCount + '</b>教学班</div></div>' +
       '<div class="cc-foot"><span class="small muted">' + esc(c.term) + ' · 负责人 ' + esc(c.owner) + '</span>' +
-      '<button class="btn btn-sm btn-soft" data-act="go" data-to="cl/kps">查看知识点</button></div></div>';
+      '<div class="row"><button class="btn btn-sm btn-soft" data-act="go" data-to="cl/kps">查看知识点</button>' + deleteBtn + '</div></div></div>';
   }).join('') + '</div>';
 
   html += '<div class="card mt16"><div class="card-head"><h3>课程列表</h3><span class="sub">共 ' + DB.courses.length + ' 门</span></div>' +
-    '<div class="table-wrap"><table class="tb"><thead><tr><th>课程名称</th><th>课程编码</th><th>学期</th><th>负责人</th><th>知识点</th><th>状态</th></tr></thead><tbody>' +
+    '<div class="table-wrap"><table class="tb"><thead><tr><th>课程名称</th><th>课程编码</th><th>学期</th><th>负责人</th><th>知识点</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
     DB.courses.map(function (c) {
+      var kpCount = DB.kps.filter(function (k) { return k.courseId === c.id; }).length;
+      var current = c.id === user.courseId;
       return '<tr><td class="cell-main">' + esc(c.name) + '</td><td class="muted">' + esc(c.code) + '</td><td class="small">' + esc(c.term) + '</td>' +
-        '<td>' + esc(c.owner) + '</td><td class="num">' + (c.id === 'c1' ? DB.kps.length : 16) + '</td>' +
-        '<td>' + tag(c.status === 'active' ? '启用' : '停用', c.status === 'active' ? 'green' : 'gray') + '</td></tr>';
+        '<td>' + esc(c.owner) + '</td><td class="num">' + kpCount + '</td>' +
+        '<td>' + tag(c.status === 'active' ? '启用' : '停用', c.status === 'active' ? 'green' : 'gray') + '</td>' +
+        '<td>' + (current
+          ? '<button class="btn btn-sm" disabled title="当前账号所属课程不可删除">' + icon('trash') + '删除</button>'
+          : '<button class="btn btn-sm btn-danger" data-act="deleteEntity" data-kind="course" data-id="' + esc(c.id) + '">' + icon('trash') + '删除</button>') + '</td></tr>';
     }).join('') + '</tbody></table></div></div>';
 
   return html;
@@ -114,7 +125,7 @@ function viewCLKps() {
     '<button class="btn btn-primary" data-act="openAddKp">' + icon('plus') + '新增知识点</button>');
 
   html += '<div class="alert info mb16">' + icon('info') +
-    '<div><b>关键约束：</b>一门课程的知识点全部为同一级别。例如本课程包含 28 个知识点，系统直接维护 28 条平级记录，不设置“一级 / 二级 / 三级”父子关系；顺序号仅用于展示排序。</div></div>';
+    '<div><b>关键约束：</b>一门课程的知识点全部为同一级别。当前共 ' + DB.kps.length + ' 个知识点，系统直接维护平级记录，不设置“一级 / 二级 / 三级”父子关系；顺序号仅用于展示排序。</div></div>';
 
   html += '<div class="stats">' +
     statCard('知识点总数', DB.kps.length + '<small>个</small>', 'layers', '') +
@@ -123,7 +134,7 @@ function viewCLKps() {
     statCard('题量不足', '0<small>个</small>', 'alert', 'amber', '每个知识点均 ≥ 3 题') +
     '</div>';
 
-  html += '<div class="card"><div class="card-head"><h3>知识点列表</h3><span class="sub">28 个平级知识点</span></div><div class="table-wrap">' +
+  html += '<div class="card"><div class="card-head"><h3>知识点列表</h3><span class="sub">' + DB.kps.length + ' 个平级知识点</span></div><div class="table-wrap">' +
     '<table class="tb"><thead><tr><th>编号</th><th>知识点名称</th><th>说明</th><th>单选</th><th>多选</th><th>判断</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
     DB.kps.map(function (k) {
       var c = { single: 0, multi: 0, judge: 0 };
@@ -131,7 +142,9 @@ function viewCLKps() {
       return '<tr><td class="muted num">' + k.code + '</td><td class="cell-main">' + esc(k.name) + '</td>' +
         '<td class="muted small" style="max-width:300px">' + esc(k.desc) + '</td>' +
         '<td class="num">' + c.single + '</td><td class="num">' + c.multi + '</td><td class="num">' + c.judge + '</td>' +
-        '<td>' + tag('启用', 'green') + '</td><td><button class="btn btn-sm btn-ghost" data-act="go" data-to="cl/questions">查看题目</button></td></tr>';
+        '<td>' + tag('启用', 'green') + '</td><td><div class="actions">' +
+        '<button class="btn btn-sm btn-ghost" data-act="go" data-to="cl/questions">查看题目</button>' +
+        '<button class="btn btn-sm btn-danger" data-act="deleteEntity" data-kind="kp" data-id="' + esc(k.id) + '">' + icon('trash') + '删除</button></div></td></tr>';
     }).join('') + '</tbody></table></div></div>';
 
   return html;
@@ -169,7 +182,8 @@ function questionTableHTML() {
       '<td><span class="muted small">' + kp.code + '</span> ' + esc(kp.name) + '</td>' +
       '<td>' + tag(q.difficulty, q.difficulty === '易' ? 'green' : q.difficulty === '难' ? 'red' : 'gray') + '</td>' +
       '<td>' + tag('启用', 'green') + '</td>' +
-      '<td><button class="btn btn-sm btn-ghost" data-act="viewQuestion" data-id="' + q.id + '">' + icon('eye') + '查看</button></td></tr>';
+      '<td><div class="actions"><button class="btn btn-sm btn-ghost" data-act="viewQuestion" data-id="' + q.id + '">' + icon('eye') + '查看</button>' +
+      '<button class="btn btn-sm btn-danger" data-act="deleteEntity" data-kind="question" data-id="' + esc(q.id) + '">' + icon('trash') + '删除</button></div></td></tr>';
   }).join('');
   html += '</tbody></table></div><div class="table-foot"><span>共 ' + list.length + ' 题 · 第 ' + page + ' / ' + pages + ' 页</span>' +
     '<span class="right row"><button class="btn btn-sm" data-act="qPage" data-page="' + (page - 1) + '" ' + (page <= 1 ? 'disabled' : '') + '>上一页</button>' +
@@ -238,14 +252,17 @@ function viewCLClasses() {
       '<div class="kpis"><div><b>' + c.count + '</b><span>学生</span></div><div><b>' + sum.completed + '</b><span>已提交</span></div>' +
       '<div><b>' + sum.avg + '</b><span>平均分</span></div></div>' +
       '<div class="mt12 progress-row"><span class="small muted">完成率</span><div class="progress"><i style="width:' + pct(sum.completed, sum.expected) + '%"></i></div><b>' + pct(sum.completed, sum.expected) + '%</b></div>' +
-      '<div class="mt12"><button class="btn btn-sm btn-soft" data-act="viewClass" data-id="' + c.id + '">查看统计</button></div></div>';
+      '<div class="mt12 row"><button class="btn btn-sm btn-soft" data-act="viewClass" data-id="' + c.id + '">查看统计</button>' +
+      '<button class="btn btn-sm btn-danger right" data-act="deleteEntity" data-kind="class" data-id="' + esc(c.id) + '">' + icon('trash') + '删除</button></div></div>';
   }).join('') + '</div>';
 
   html += '<div class="card mt16"><div class="card-head"><h3>教师与教学班对应关系</h3></div><div class="table-wrap">' +
-    '<table class="tb"><thead><tr><th>教学班</th><th>任课教师</th><th>专业</th><th>学生人数</th><th>课程</th><th>状态</th></tr></thead><tbody>' +
+    '<table class="tb"><thead><tr><th>教学班</th><th>任课教师</th><th>专业</th><th>学生人数</th><th>课程</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
     DB.classes.map(function (c) {
+      var course = DB.courses.filter(function (x) { return x.id === c.courseId; })[0];
       return '<tr><td class="cell-main">' + esc(c.name) + '</td><td>' + esc(c.teacherName) + '</td><td class="muted">' + esc(c.major) + '</td>' +
-        '<td class="num">' + c.count + '</td><td class="muted">Java程序设计</td><td>' + tag('进行中', 'green') + '</td></tr>';
+        '<td class="num">' + c.count + '</td><td class="muted">' + esc(course ? course.name : '—') + '</td><td>' + tag('进行中', 'green') + '</td>' +
+        '<td><button class="btn btn-sm btn-danger" data-act="deleteEntity" data-kind="class" data-id="' + esc(c.id) + '">' + icon('trash') + '删除</button></td></tr>';
     }).join('') + '</tbody></table></div></div>';
 
   return html;
@@ -272,7 +289,8 @@ function viewCLPapers() {
         '<td class="num">' + p.items.length + '</td><td class="num">' + paperTotal(p) + '</td><td>' + statusTag(p) + '</td>' +
         '<td class="muted small">' + fmtDT(p.publishedAt) + '</td>' +
         '<td><div class="actions"><button class="btn btn-sm btn-ghost" data-act="viewPaper" data-id="' + p.id + '">' + icon('eye') + '查看</button>' +
-        '<button class="btn btn-sm btn-ghost" data-act="exportPaper" data-id="' + p.id + '">' + icon('download') + '导出</button></div></td></tr>';
+        '<button class="btn btn-sm btn-ghost" data-act="exportPaper" data-id="' + p.id + '">' + icon('download') + '导出</button>' +
+        '<button class="btn btn-sm btn-danger" data-act="deleteEntity" data-kind="paper" data-id="' + esc(p.id) + '">' + icon('trash') + '删除</button></div></td></tr>';
     }).join('') : '<tr><td colspan="8">' + emptyHTML('暂无符合条件的试卷', '切换筛选条件后再试。', 'file') + '</td></tr>') +
     '</tbody></table></div></div>';
 
@@ -283,7 +301,9 @@ function viewCLPapers() {
 function viewCLStats() {
   var totalExpected = DB.classSummaries.reduce(function (a, c) { return a + c.expected; }, 0);
   var totalCompleted = DB.classSummaries.reduce(function (a, c) { return a + c.completed; }, 0);
-  var avg = Math.round(DB.classSummaries.reduce(function (a, c) { return a + c.avg; }, 0) / DB.classSummaries.length * 10) / 10;
+  var avg = DB.classSummaries.length
+    ? Math.round(DB.classSummaries.reduce(function (a, c) { return a + c.avg; }, 0) / DB.classSummaries.length * 10) / 10
+    : 0;
   var weak = DB.kpAvg.slice().sort(function (a, b) { return a.avg - b.avg; });
   var html = pageHead('课程统计', '课程整体与跨教学班横向分析',
     '<button class="btn" data-act="export" data-kind="classSummary">' + icon('download') + '导出统计</button>');
@@ -343,7 +363,8 @@ function classDetailModal(cid) {
     '</div>';
   showModal(modalHead('教学班详情', '课程负责人视角 · ' + esc(c.term)) + '<div class="modal-body">' + body + '</div>' +
     '<div class="modal-foot"><button class="btn" data-act="closeModal">关闭</button>' +
-    '<button class="btn btn-soft" data-act="export" data-kind="classSummary">' + icon('download') + '导出班级汇总</button></div>', 'wide');
+    '<button class="btn btn-soft" data-act="export" data-kind="classSummary">' + icon('download') + '导出班级汇总</button>' +
+    '<button class="btn btn-danger" data-act="deleteEntity" data-kind="class" data-id="' + esc(c.id) + '">' + icon('trash') + '删除教学班</button></div>', 'wide');
 }
 
 /* ---------------- 导出中心 ---------------- */

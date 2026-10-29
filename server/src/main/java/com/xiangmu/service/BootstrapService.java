@@ -156,8 +156,10 @@ public class BootstrapService {
         out.put("logs", isStudent ? List.of() : allLogs.stream().map(mapper::log).toList());
         out.put("p1Scores", isStudent ? List.of() : p1Scores(visibleStudents));
         out.put("classSummaries", isStudent ? List.of() : classSummaries(visibleClasses, visibleStudents));
-        out.put("kpAvg", isStudent ? List.of() : seedList("kpAvg"));
-        out.put("qAccuracy", isStudent ? List.of() : seedList("qAccuracy"));
+        Set<String> existingKpIds = allKps.stream().map(k -> k.id).collect(Collectors.toSet());
+        Set<String> existingQuestionIds = allQuestions.stream().map(q -> q.id).collect(Collectors.toSet());
+        out.put("kpAvg", isStudent ? List.of() : seedList("kpAvg", "kpId", existingKpIds));
+        out.put("qAccuracy", isStudent ? List.of() : seedList("qAccuracy", "qid", existingQuestionIds));
         return out;
     }
 
@@ -234,6 +236,7 @@ public class BootstrapService {
             if ("p1".equals(a.paperId) && "submitted".equals(a.status)) scores.put(a.studentId, a.score);
         }
         JsonNode seedSummaries = seedService.root() == null ? null : seedService.root().path("classSummaries");
+        boolean seedPaperExists = papers.findById("p1").isPresent();
         List<Map<String, Object>> result = new ArrayList<>();
         for (ClassGroup c : visibleClasses) {
             List<Student> list = byClass.getOrDefault(c.id, List.of());
@@ -248,7 +251,8 @@ public class BootstrapService {
             m.put("avg", avg);
             m.put("max", values.isEmpty() ? 0 : Collections.max(values));
             m.put("min", values.isEmpty() ? 0 : Collections.min(values));
-            if (values.isEmpty() && seedSummaries != null && seedSummaries.isArray()) {
+            if (values.isEmpty() && seedPaperExists && (c.count > 0 || !list.isEmpty())
+                    && seedSummaries != null && seedSummaries.isArray()) {
                 for (JsonNode n : seedSummaries) {
                     if (c.id.equals(n.path("classId").asText())) {
                         m.put("expected", n.path("expected").asInt(m.get("expected") instanceof Integer i ? i : 0));
@@ -265,11 +269,16 @@ public class BootstrapService {
         return result;
     }
 
-    private List<Object> seedList(String field) {
+    private List<Object> seedList(String field, String idField, Set<String> existingIds) {
         JsonNode root = seedService.root();
-        if (root == null) return List.of();
+        if (root == null || !root.path(field).isArray()) return List.of();
         List<Object> list = new ArrayList<>();
-        for (JsonNode n : root.path(field)) list.add(mapper.read(n.toString(), new TypeReference<Map<String, Object>>() {}, Map.of()));
+        for (JsonNode n : root.path(field)) {
+            String id = n.path(idField).asText(null);
+            if (id == null || existingIds.contains(id)) {
+                list.add(mapper.read(n.toString(), new TypeReference<Map<String, Object>>() {}, Map.of()));
+            }
+        }
         return list;
     }
 }

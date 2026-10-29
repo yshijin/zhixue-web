@@ -329,7 +329,8 @@ function viewTPapers() {
         '<td><span class="small">' + perf.completed + ' / ' + perf.expected + '</span></td><td>' + statusTag(p) + '</td>' +
         '<td><div class="actions"><button class="btn btn-sm btn-ghost" data-act="viewPaper" data-id="' + p.id + '">' + icon('eye') + '查看</button>' +
         (paperStatus(p).key === 'ongoing' ? '<button class="btn btn-sm btn-ghost" data-act="endPaper" data-id="' + p.id + '">结束</button>' : '') +
-        '<button class="btn btn-sm btn-ghost" data-act="setStatsPaper" data-id="' + p.id + '">' + icon('chart') + '统计</button></div></td></tr>';
+        '<button class="btn btn-sm btn-ghost" data-act="setStatsPaper" data-id="' + p.id + '">' + icon('chart') + '统计</button>' +
+        '<button class="btn btn-sm btn-danger" data-act="deleteEntity" data-kind="paper" data-id="' + esc(p.id) + '">' + icon('trash') + '删除</button></div></td></tr>';
     }).join('') : '<tr><td colspan="8">' + emptyHTML('暂无试卷', '点击右上角创建测试。', 'file') + '</td></tr>') +
     '</tbody></table></div></div>';
   return html;

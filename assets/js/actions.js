@@ -464,6 +464,177 @@ function deleteMetric(label, value) {
     '<b style="font-size:22px;font-variant-numeric:tabular-nums">' + value + '</b></div>';
 }
 
+/* ---------------- 删除课程 / 知识点 / 题目 / 教学班 / 试卷 ---------------- */
+function paperUsesAnyQuestion(p, questionIds) {
+  return (p.items || []).some(function (it) { return questionIds.indexOf(it.qid) > -1; });
+}
+
+function courseDeleteSummary(id) {
+  var course = DB.courses.filter(function (c) { return c.id === id; })[0];
+  var classes = DB.classes.filter(function (c) { return c.courseId === id; });
+  var classIds = classes.map(function (c) { return c.id; });
+  var boundTeacherIds = {};
+  classes.forEach(function (c) { if (c.teacherId) boundTeacherIds[c.teacherId] = true; });
+  var teachers = DB.teachers.filter(function (t) { return t.courseId === id || boundTeacherIds[t.id]; });
+  var students = DB.students.filter(function (s) { return classIds.indexOf(s.classId) > -1; });
+  var studentIds = students.map(function (s) { return s.id; });
+  var kps = DB.kps.filter(function (k) { return k.courseId === id; });
+  var kpIds = kps.map(function (k) { return k.id; });
+  var questions = DB.questions.filter(function (q) { return kpIds.indexOf(q.kpId) > -1; });
+  var questionIds = questions.map(function (q) { return q.id; });
+  var papers = DB.papers.filter(function (p) {
+    return p.courseId === id ||
+      (p.classIds || []).some(function (cid) { return classIds.indexOf(cid) > -1; }) ||
+      paperUsesAnyQuestion(p, questionIds);
+  });
+  var paperIds = papers.map(function (p) { return p.id; });
+  var attemptMap = {};
+  DB.attempts.forEach(function (a) {
+    if (paperIds.indexOf(a.paperId) > -1 || studentIds.indexOf(a.studentId) > -1) attemptMap[a.id] = a;
+  });
+  return {
+    course: course,
+    kps: kps,
+    questions: questions,
+    teachers: teachers,
+    classes: classes,
+    students: students,
+    papers: papers,
+    attempts: Object.keys(attemptMap).map(function (k) { return attemptMap[k]; })
+  };
+}
+
+function kpDeleteSummary(id) {
+  var kp = DB.kps.filter(function (k) { return k.id === id; })[0];
+  var questions = DB.questions.filter(function (q) { return q.kpId === id; });
+  var questionIds = questions.map(function (q) { return q.id; });
+  var papers = DB.papers.filter(function (p) { return paperUsesAnyQuestion(p, questionIds); });
+  var paperIds = papers.map(function (p) { return p.id; });
+  var attempts = DB.attempts.filter(function (a) { return paperIds.indexOf(a.paperId) > -1; });
+  return { kp: kp, questions: questions, papers: papers, attempts: attempts };
+}
+
+function questionDeleteSummary(id) {
+  var question = DB.questions.filter(function (q) { return q.id === id; })[0];
+  var papers = DB.papers.filter(function (p) { return paperUsesAnyQuestion(p, [id]); });
+  var paperIds = papers.map(function (p) { return p.id; });
+  var attempts = DB.attempts.filter(function (a) { return paperIds.indexOf(a.paperId) > -1; });
+  return { question: question, papers: papers, attempts: attempts };
+}
+
+function classDeleteSummary(id) {
+  var group = DB.classes.filter(function (c) { return c.id === id; })[0];
+  var students = DB.students.filter(function (s) { return s.classId === id; });
+  var studentIds = students.map(function (s) { return s.id; });
+  var papers = DB.papers.filter(function (p) { return (p.classIds || []).indexOf(id) > -1; });
+  var paperIds = papers.map(function (p) { return p.id; });
+  var attempts = DB.attempts.filter(function (a) {
+    return paperIds.indexOf(a.paperId) > -1 || studentIds.indexOf(a.studentId) > -1;
+  });
+  return { group: group, students: students, papers: papers, attempts: attempts };
+}
+
+function paperDeleteSummary(id) {
+  var paper = DB.papers.filter(function (p) { return p.id === id; })[0];
+  var attempts = DB.attempts.filter(function (a) { return a.paperId === id; });
+  return { paper: paper, attempts: attempts };
+}
+
+function showEntityDeleteModal(o) {
+  showModal(modalHead(o.title, o.subtitle) +
+    '<div class="modal-body">' +
+    '<div class="alert danger">' + icon('alert') + '<div><b>此操作不可恢复。</b>' + o.warning + '</div></div>' +
+    '<div class="report-text mt16">' + o.info + '</div>' +
+    '<div class="row mt16" style="gap:28px;flex-wrap:wrap">' + o.metrics + '</div>' +
+    '<div class="form-note mt12">' + o.note + '</div>' +
+    '</div><div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
+    '<button class="btn btn-danger" data-act="confirmDeleteEntity" data-kind="' + o.kind +
+    '" data-id="' + esc(o.id) + '">确认彻底删除</button></div>', 'wide');
+}
+
+function openEntityDelete(kind, id) {
+  if (!id) { toast('缺少删除对象编号，请刷新页面重试', 'err'); return; }
+  if (kind === 'course') {
+    var cs = courseDeleteSummary(id);
+    if (!cs.course) { toast('课程不存在或已被删除', 'err'); return; }
+    if (cs.course.id === user.courseId) {
+      toast('当前账号所属课程不能删除，请先切换课程', 'err');
+      return;
+    }
+    showEntityDeleteModal({
+      kind: kind, id: id, title: '删除课程', subtitle: '彻底删除课程及全部关联数据',
+      warning: '课程下的知识点、题目、教师账号、教学班、学生账号、关联试卷和全部作答记录将被永久删除。',
+      info: '课程：<b>' + esc(cs.course.name) + '</b>（' + esc(cs.course.code) + '）<br>负责人：' + esc(cs.course.owner),
+      metrics: deleteMetric('知识点', cs.kps.length) + deleteMetric('题目', cs.questions.length) +
+        deleteMetric('教师', cs.teachers.length) + deleteMetric('教学班', cs.classes.length) +
+        deleteMetric('学生', cs.students.length) + deleteMetric('试卷', cs.papers.length) +
+        deleteMetric('作答记录', cs.attempts.length),
+      note: '删除后，该课程将不再出现在课程列表、题库、教学班、统计、报告和导出数据中。当前账号所属课程不可删除。'
+    });
+    return;
+  }
+  if (kind === 'kp') {
+    var ks = kpDeleteSummary(id);
+    if (!ks.kp) { toast('知识点不存在或已被删除', 'err'); return; }
+    var course = DB.courses.filter(function (c) { return c.id === ks.kp.courseId; })[0];
+    showEntityDeleteModal({
+      kind: kind, id: id, title: '删除知识点', subtitle: '彻底删除知识点及其关联题目',
+      warning: '知识点下的题目将一并删除；若题目已被试卷引用，相关试卷和作答记录也会被永久删除。',
+      info: '知识点：<b>' + esc(ks.kp.code) + ' ' + esc(ks.kp.name) + '</b><br>所属课程：' + esc(course ? course.name : '—'),
+      metrics: deleteMetric('题目', ks.questions.length) + deleteMetric('试卷', ks.papers.length) +
+        deleteMetric('作答记录', ks.attempts.length),
+      note: '删除后，该知识点及关联题目将不再出现在题库、组卷、统计和导出数据中。'
+    });
+    return;
+  }
+  if (kind === 'question') {
+    var qs = questionDeleteSummary(id);
+    if (!qs.question) { toast('题目不存在或已被删除', 'err'); return; }
+    var stem = qs.question.stem.length > 60 ? qs.question.stem.slice(0, 60) + '…' : qs.question.stem;
+    showEntityDeleteModal({
+      kind: kind, id: id, title: '删除题目', subtitle: '彻底删除题目及引用它的试卷',
+      warning: '引用该题目的试卷和全部作答记录将被永久删除，其他题目不受影响。',
+      info: '题目：<b>' + esc(qs.question.id) + '</b><br>' + esc(stem),
+      metrics: deleteMetric('引用试卷', qs.papers.length) + deleteMetric('作答记录', qs.attempts.length),
+      note: '删除后，该题目将不再出现在题库、组卷、试卷详情、统计和导出数据中。'
+    });
+    return;
+  }
+  if (kind === 'class') {
+    var cls = classDeleteSummary(id);
+    if (!cls.group) { toast('教学班不存在或已被删除', 'err'); return; }
+    showEntityDeleteModal({
+      kind: kind, id: id, title: '删除教学班', subtitle: '彻底删除教学班及班内数据',
+      warning: '班内学生账号、该班关联试卷和全部作答记录将被永久删除；若试卷同时发布给其他教学班，也会一并删除。',
+      info: '教学班：<b>' + esc(cls.group.name) + '</b><br>任课教师：' + esc(cls.group.teacherName) +
+        '<br>课程：' + esc((DB.courses.filter(function (c) { return c.id === cls.group.courseId; })[0] || {}).name || '—'),
+      metrics: deleteMetric('学生', cls.students.length) + deleteMetric('试卷', cls.papers.length) +
+        deleteMetric('作答记录', cls.attempts.length),
+      note: '删除后，教师教学班文本、课程班级数和相关统计会同步更新。'
+    });
+    return;
+  }
+  if (kind === 'paper') {
+    var ps = paperDeleteSummary(id);
+    if (!ps.paper) { toast('试卷不存在或已被删除', 'err'); return; }
+    showEntityDeleteModal({
+      kind: kind, id: id, title: '删除试卷', subtitle: '彻底删除试卷及全部作答记录',
+      warning: '试卷本身和全部作答记录将被永久删除，学生的成绩、报告和统计会同步消失。',
+      info: '试卷：<b>' + esc(ps.paper.name) + '</b><br>教师 / 班级：' + esc(ps.paper.teacherName) + ' · ' + esc(ps.paper.className),
+      metrics: deleteMetric('题目', ps.paper.items.length) + deleteMetric('作答记录', ps.attempts.length),
+      note: '删除后，该试卷将不再出现在试卷中心、学生测试、统计、报告和导出数据中。'
+    });
+  }
+}
+
+var ENTITY_DELETE_API = {
+  course: function (id) { return API.deleteCourse(id); },
+  kp: function (id) { return API.deleteKp(id); },
+  question: function (id) { return API.deleteQuestion(id); },
+  'class': function (id) { return API.deleteClass(id); },
+  paper: function (id) { return API.deletePaper(id); }
+};
+
 /* ---------------- 动作表 ---------------- */
 var ACTIONS = {
   noop: function () {},
@@ -556,6 +727,56 @@ var ACTIONS = {
       closeModal();
       render();
       toast('已彻底删除学生「' + name + '」及关联数据');
+    } catch (e) {
+      el.disabled = false;
+      toast(e.message, 'err');
+    }
+  },
+  deleteEntity: function (el) {
+    openEntityDelete(el.dataset.kind, el.dataset.id);
+  },
+  confirmDeleteEntity: async function (el) {
+    var kind = el.dataset.kind;
+    var id = el.dataset.id;
+    var api = ENTITY_DELETE_API[kind];
+    if (!api || !id) { toast('缺少删除对象信息，请刷新页面重试', 'err'); return; }
+    var name = '';
+    var extra = '';
+    if (kind === 'course') {
+      var cs = courseDeleteSummary(id);
+      if (!cs.course) { toast('课程不存在或已被删除', 'err'); return; }
+      name = cs.course.name;
+      extra = '及全部关联数据';
+    } else if (kind === 'kp') {
+      var ks = kpDeleteSummary(id);
+      if (!ks.kp) { toast('知识点不存在或已被删除', 'err'); return; }
+      name = ks.kp.name;
+      extra = '，同时删除 ' + ks.questions.length + ' 道题目' +
+        (ks.papers.length ? '、' + ks.papers.length + ' 份试卷' : '');
+    } else if (kind === 'question') {
+      var qs = questionDeleteSummary(id);
+      if (!qs.question) { toast('题目不存在或已被删除', 'err'); return; }
+      name = qs.question.id;
+      extra = qs.papers.length ? '，同时删除 ' + qs.papers.length + ' 份引用试卷' : '';
+    } else if (kind === 'class') {
+      var cls = classDeleteSummary(id);
+      if (!cls.group) { toast('教学班不存在或已被删除', 'err'); return; }
+      name = cls.group.name;
+      extra = '，同时删除 ' + cls.students.length + ' 名学生' +
+        (cls.papers.length ? '、' + cls.papers.length + ' 份试卷' : '');
+    } else if (kind === 'paper') {
+      var ps = paperDeleteSummary(id);
+      if (!ps.paper) { toast('试卷不存在或已被删除', 'err'); return; }
+      name = ps.paper.name;
+      extra = '及 ' + ps.attempts.length + ' 条作答记录';
+    }
+    el.disabled = true;
+    try {
+      await api(id);
+      await reloadDB();
+      closeModal();
+      render();
+      toast('已彻底删除「' + name + '」' + extra);
     } catch (e) {
       el.disabled = false;
       toast(e.message, 'err');
