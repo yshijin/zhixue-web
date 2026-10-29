@@ -151,4 +151,4 @@ start-server.ps1                   本地启动脚本
 - AI 诊断 503：未配置 `AI_ENABLED` 与 `AI_API_KEY`，属预期行为。
 - 页面数据不更新：自动刷新会跳过考试、组卷、弹窗和输入状态；可手动刷新页面。
 - 修改中文 HTML/JS 时只使用编辑器/写入工具，不要用 PowerShell 的 `Get-Content` + `Set-Content -Encoding UTF8`，避免双重编码。
-- Git 未加入 PATH 时使用便携版：`D:\dev\minigit\cmd\git.exe`。
+- 正式 Git for Windows 2.56 安装于 `C:\Users\35009\AppData\Local\Programs\Git`，已加入当前用户 PATH；仓库历史和配置都在 `D:\xiangmuuuu\.git`，不随 Git 安装位置变化。
