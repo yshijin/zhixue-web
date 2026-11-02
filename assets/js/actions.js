@@ -794,6 +794,13 @@ var ACTIONS = {
   go: function (el) {
     go(el.dataset.to);
   },
+  viewKpQuestions: function (el) {
+    S.q.kp = el.dataset.id || '';
+    S.q.type = '';
+    S.q.kw = '';
+    S.q.page = 1;
+    go('cl/questions');
+  },
   toggleKp: function (el) {
     var w = S.wizard;
     var id = el.dataset.id;

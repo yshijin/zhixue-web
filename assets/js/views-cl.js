@@ -143,7 +143,7 @@ function viewCLKps() {
         '<td class="muted small" style="max-width:300px">' + esc(k.desc) + '</td>' +
         '<td class="num">' + c.single + '</td><td class="num">' + c.multi + '</td><td class="num">' + c.judge + '</td>' +
         '<td>' + tag('启用', 'green') + '</td><td><div class="actions">' +
-        '<button class="btn btn-sm btn-ghost" data-act="go" data-to="cl/questions">查看题目</button>' +
+        '<button class="btn btn-sm btn-ghost" data-act="viewKpQuestions" data-id="' + esc(k.id) + '">' + icon('eye') + '查看题目</button>' +
         '<button class="btn btn-sm btn-danger" data-act="deleteEntity" data-kind="kp" data-id="' + esc(k.id) + '">' + icon('trash') + '删除</button></div></td></tr>';
     }).join('') + '</tbody></table></div></div>';
 
@@ -194,6 +194,7 @@ function questionTableHTML() {
 function viewCLQuestions() {
   var counts = { single: 0, multi: 0, judge: 0 };
   DB.questions.forEach(function (q) { counts[q.type]++; });
+  var curKp = S.q.kp ? KPBY(S.q.kp) : null;
   var html = pageHead('题库管理', '单选 / 多选 / 判断题 · 每题关联知识点',
     '<button class="btn" data-act="openImport" data-kind="question">' + icon('upload') + '批量导入</button>' +
     '<button class="btn btn-primary" data-act="openAddQuestion">' + icon('plus') + '新增题目</button>');
@@ -213,7 +214,7 @@ function viewCLQuestions() {
     '<option value="multi" ' + (S.q.type === 'multi' ? 'selected' : '') + '>多选题</option>' +
     '<option value="judge" ' + (S.q.type === 'judge' ? 'selected' : '') + '>判断题</option></select>' +
     '<input class="input search" style="width:260px" placeholder="搜索题干 / 知识点" value="' + esc(S.q.kw) + '" data-input="qsearch">' +
-    '<span class="small muted right">共 ' + DB.questions.length + ' 题 · 演示题库含自动生成示例题</span>' +
+    '<span class="small muted right">' + (curKp ? '当前知识点：' + esc(curKp.code + ' ' + curKp.name) + ' · ' : '') + '共 ' + filterQuestions().length + ' 题</span>' +
     '</div></div><div id="qTableWrap">' + questionTableHTML() + '</div></div>';
 
   return html;
