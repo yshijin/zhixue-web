@@ -132,24 +132,33 @@ $env:SERVER_PORT = "8080"
 | POST | `/api/papers/{id}/end` | 结束试卷 |
 | POST | `/api/students` | 添加学生 |
 | POST | `/api/import/{kind}` | CSV 预检/导入：`student`、`teacher`、`kp`、`question` |
-| GET | `/api/ai/status` | 云端 AI 配置状态 |
+| GET | `/api/ai/status` | 当前 AI 模型配置状态 |
 | POST | `/api/ai/diagnose` | 云端 AI 学习解读 |
+| GET | `/api/ai/providers` | 课程负责人查看模型供应商 |
+| POST | `/api/ai/providers` | 新增模型供应商 |
+| PUT | `/api/ai/providers/{id}` | 修改供应商配置 |
+| POST | `/api/ai/providers/{id}/activate` | 切换当前模型 |
+| POST | `/api/ai/providers/{id}/test` | 测试供应商连接 |
+| DELETE | `/api/ai/providers/{id}` | 删除供应商 |
 | GET | `/api/health` | 健康检查 |
 | POST | `/api/demo/reset` | 重置演示数据（需显式开启） |
 
-## 7. 云端 AI
+## 7. 云端 AI 与模型切换
 
-默认关闭，不影响本地规则诊断。启用方式：
+默认使用本地规则诊断，不影响测评与报告。课程负责人登录后，在「系统 → 模型设置」中配置 OpenAI 兼容供应商，可保存多套配置并随时切换当前模型，无需重启服务。
+
+支持 DeepSeek、OpenAI、通义千问、Kimi、智谱 GLM、Ollama 等兼容 `/chat/completions` 的接口。可填写供应商名称、接口地址、模型 ID 和 API Key，并测试连接；API Key 只保存在服务端，页面仅显示末四位。
+
+首次启动时，系统会按环境变量创建默认供应商，之后以页面配置为准：
 
 ```powershell
-$env:AI_ENABLED = "true"
-$env:AI_API_KEY = "你的 API Key"
 $env:AI_BASE_URL = "https://api.deepseek.com/v1"
 $env:AI_MODEL = "deepseek-chat"
+$env:AI_API_KEY = "你的 API Key"
 .\start-server.ps1
 ```
 
-服务端只把分数、知识点、错题事实发送给云端模型；分数与正确率始终由服务端规则计算。
+服务端只把分数、知识点、错题事实发送给当前模型；分数与正确率始终由服务端规则计算。
 
 ## 8. CSV 批量导入
 

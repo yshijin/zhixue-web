@@ -13,6 +13,7 @@ ROUTES = {
   'cl/stats': viewCLStats,
   'cl/export': viewCLExport,
   'cl/logs': viewCLLogs,
+  'cl/ai': viewCLAi,
   't/dashboard': viewTDashboard,
   't/students': viewTStudents,
   't/create': viewTCreate,
@@ -188,6 +189,50 @@ function openAddCourse() {
     '<div class="field full"><label>课程负责人</label><input class="input" value="' + esc(user.name) + '" readonly></div>' +
     '</div></div><div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
     '<button class="btn btn-primary" data-act="saveCourse">创建课程</button></div>');
+}
+
+/* ---------------- 弹窗：AI 模型供应商 ---------------- */
+var AI_PRESETS = {
+  deepseek: { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  qwen: { name: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
+  kimi: { name: 'Kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
+  zhipu: { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+  ollama: { name: 'Ollama 本地', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen2.5:7b' }
+};
+
+function applyAiPreset(key) {
+  var p = AI_PRESETS[key];
+  if (!p) return;
+  if ($('#aiName')) $('#aiName').value = p.name;
+  if ($('#aiBaseUrl')) $('#aiBaseUrl').value = p.baseUrl;
+  if ($('#aiModel')) $('#aiModel').value = p.model;
+}
+
+function openAiProviderModal(id) {
+  var p = id ? (DB.aiProviders || []).filter(function (x) { return x.id === id; })[0] : null;
+  var editing = !!p;
+  var keyNote = editing
+    ? (p.hasKey ? '当前已保存密钥：' + esc(p.keyHint || '') + '。留空表示继续使用原密钥。' : '当前尚未设置密钥。')
+    : '本地模型可留空；云端模型需要填写对应平台的 API Key。';
+  showModal(modalHead(editing ? '编辑供应商' : '新增供应商', 'OpenAI 兼容接口 · API Key 仅保存在服务端') +
+    '<div class="modal-body"><div class="form-grid">' +
+    '<div class="field full"><label>快速预设</label><select class="select" id="aiPreset" data-select="aiPreset">' +
+    '<option value="">自定义 / 手动填写</option>' +
+    '<option value="deepseek">DeepSeek</option>' +
+    '<option value="openai">OpenAI</option>' +
+    '<option value="qwen">通义千问</option>' +
+    '<option value="kimi">Kimi</option>' +
+    '<option value="zhipu">智谱 GLM</option>' +
+    '<option value="ollama">Ollama 本地</option></select>' +
+    '<div class="form-note mt8">选择预设会填入常用地址和模型，仍可手动修改。</div></div>' +
+    '<div class="field"><label>供应商名称<i>*</i></label><input class="input" id="aiName" placeholder="如：DeepSeek 教学专用" value="' + (editing ? esc(p.name) : '') + '"></div>' +
+    '<div class="field"><label>模型 ID<i>*</i></label><input class="input" id="aiModel" placeholder="如：deepseek-chat" value="' + (editing ? esc(p.model) : '') + '"></div>' +
+    '<div class="field full"><label>接口地址<i>*</i></label><input class="input" id="aiBaseUrl" placeholder="https://api.deepseek.com/v1" value="' + (editing ? esc(p.baseUrl) : '') + '"></div>' +
+    '<div class="field full"><label>API Key' + (editing ? '（留空保持不变）' : '') + '</label><input class="input" id="aiApiKey" type="password" autocomplete="new-password" placeholder="' + (editing && p.hasKey ? '已保存，如需更换请填写新密钥' : 'sk-...') + '"></div>' +
+    '<div class="field full"><div class="form-note">' + keyNote + '</div></div>' +
+    '</div></div><div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
+    '<button class="btn btn-primary" data-act="saveAiProvider" data-id="' + (editing ? esc(p.id) : '') + '">' + (editing ? '保存修改' : '创建供应商') + '</button></div>', 'wide');
 }
 
 /* ---------------- 导入 ---------------- */
@@ -970,6 +1015,89 @@ var ACTIONS = {
     }
   },
   viewClass: function (el) { classDetailModal(el.dataset.id); },
+  openAiProvider: function (el) { openAiProviderModal(el.dataset.id || ''); },
+  saveAiProvider: async function (el) {
+    var id = el.dataset.id || '';
+    var name = ($('#aiName').value || '').trim();
+    var baseUrl = ($('#aiBaseUrl').value || '').trim();
+    var model = ($('#aiModel').value || '').trim();
+    var apiKey = ($('#aiApiKey').value || '').trim();
+    if (!name || !baseUrl || !model) { toast('供应商名称、接口地址和模型 ID 不能为空', 'err'); return; }
+    var label = el.innerHTML;
+    el.disabled = true; el.textContent = '保存中…';
+    try {
+      var payload = { name: name, baseUrl: baseUrl, model: model, apiKey: apiKey };
+      if (id) await API.updateAiProvider(id, payload);
+      else await API.createAiProvider(payload);
+      await reloadDB();
+      closeModal();
+      render();
+      toast(id ? '供应商配置已更新' : '供应商已创建，可在列表中启用');
+    } catch (e) {
+      el.disabled = false; el.innerHTML = label;
+      toast(e.message, 'err');
+    }
+  },
+  activateAiProvider: async function (el) {
+    var id = el.dataset.id;
+    var p = (DB.aiProviders || []).filter(function (x) { return x.id === id; })[0];
+    if (!p) { toast('供应商不存在，请刷新页面重试', 'err'); return; }
+    var label = el.innerHTML;
+    el.disabled = true; el.textContent = '切换中…';
+    try {
+      await API.activateAiProvider(id);
+      await reloadDB();
+      render();
+      toast('已切换模型：' + p.name + ' · ' + p.model);
+    } catch (e) {
+      el.disabled = false; el.innerHTML = label;
+      toast(e.message, 'err');
+    }
+  },
+  testAiProvider: async function (el) {
+    var id = el.dataset.id;
+    var p = (DB.aiProviders || []).filter(function (x) { return x.id === id; })[0];
+    if (!p) { toast('供应商不存在，请刷新页面重试', 'err'); return; }
+    var label = el.innerHTML;
+    el.disabled = true; el.textContent = '测试中…';
+    try {
+      var res = await API.testAiProvider(id);
+      toast('连接成功：' + (res.model || p.model) + ' · ' + res.latencyMs + 'ms');
+    } catch (e) {
+      toast(e.message, 'err');
+    } finally {
+      el.disabled = false; el.innerHTML = label;
+    }
+  },
+  deleteAiProvider: function (el) {
+    var id = el.dataset.id;
+    var p = (DB.aiProviders || []).filter(function (x) { return x.id === id; })[0];
+    if (!p) { toast('供应商不存在，请刷新页面重试', 'err'); return; }
+    showModal(modalHead('删除供应商', '删除后该模型配置将不可恢复') +
+      '<div class="modal-body">' +
+      '<div class="alert danger">' + icon('alert') + '<div><b>此操作不可恢复。</b>删除当前使用中的供应商时，系统会自动切换到其他供应商。</div></div>' +
+      '<div class="report-text mt16">供应商：<b>' + esc(p.name) + '</b><br>模型：' + esc(p.model) + '<br>接口：' + esc(p.baseUrl) + '</div>' +
+      '<div class="form-note mt12">如果这是最后一个供应商，系统会阻止删除，以保证模型设置页面始终有可用配置。</div>' +
+      '</div><div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
+      '<button class="btn btn-danger" data-act="confirmDeleteAiProvider" data-id="' + esc(id) + '">确认删除</button></div>', 'wide');
+  },
+  confirmDeleteAiProvider: async function (el) {
+    var id = el.dataset.id;
+    var p = (DB.aiProviders || []).filter(function (x) { return x.id === id; })[0];
+    var name = p ? p.name : '该供应商';
+    var label = el.innerHTML;
+    el.disabled = true; el.textContent = '删除中…';
+    try {
+      var res = await API.deleteAiProvider(id);
+      await reloadDB();
+      closeModal();
+      render();
+      toast('已删除「' + name + '」' + (res.activeName ? '，当前模型切换为「' + res.activeName + '」' : ''));
+    } catch (e) {
+      el.disabled = false; el.innerHTML = label;
+      toast(e.message, 'err');
+    }
+  },
   viewPaper: function (el) { openPaper(el.dataset.id); },
   exportPaper: function (el) { exportPaper(el.dataset.id); },
   export: function (el) { handleExport(el.dataset.kind, el.dataset.id); },
@@ -1174,6 +1302,9 @@ document.addEventListener('change', function (e) {
     var confirm = document.querySelector('[data-act="confirmImport"]');
     if (confirm) confirm.disabled = true;
     return;
+  }
+  if (el.dataset.select === 'aiPreset') {
+    applyAiPreset(el.value); return;
   }
   if (el.dataset.filter === 'qkp') {
     S.q.kp = el.value; S.q.page = 1; refreshQTable(); return;

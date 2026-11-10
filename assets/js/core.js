@@ -136,7 +136,10 @@ var NAV = {
       { key: 'cl/stats', label: '课程统计', icon: 'chart' },
       { key: 'cl/export', label: '导出中心', icon: 'download' }
     ] },
-    { group: '系统', items: [{ key: 'cl/logs', label: '审计日志', icon: 'shield' }] }
+    { group: '系统', items: [
+      { key: 'cl/logs', label: '审计日志', icon: 'shield' },
+      { key: 'cl/ai', label: '模型设置', icon: 'spark' }
+    ] }
   ],
   teacher: [
     { group: '概览', items: [{ key: 't/dashboard', label: '工作台', icon: 'grid' }] },

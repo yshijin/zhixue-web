@@ -398,7 +398,7 @@ function viewCLExport() {
 function viewCLLogs() {
   var html = pageHead('审计日志', '账号、导入、题库、试卷与敏感导出操作留痕',
     '<button class="btn" data-act="export" data-kind="logs">' + icon('download') + '导出日志</button>');
-  var colors = { '导入': 'blue', '题库': 'purple', '组卷': 'green', '导出': 'amber', '账号': 'red' };
+  var colors = { '导入': 'blue', '题库': 'purple', '组卷': 'green', '导出': 'amber', '账号': 'red', '模型': 'purple' };
   html += '<div class="card"><div class="card-head"><h3>操作记录</h3><span class="sub">共 ' + DB.logs.length + ' 条</span></div>' +
     '<div class="table-wrap"><table class="tb"><thead><tr><th>时间</th><th>操作人</th><th>角色</th><th>操作</th><th>详情</th></tr></thead><tbody>' +
     DB.logs.slice().sort(function (a, b) { return new Date(b.time) - new Date(a.time); }).map(function (l) {
@@ -406,5 +406,53 @@ function viewCLLogs() {
         '<td class="muted small">' + esc(l.role) + '</td><td>' + tag(l.action, colors[l.action] || 'gray') + '</td>' +
         '<td class="muted small">' + esc(l.detail) + '</td></tr>';
     }).join('') + '</tbody></table></div></div>';
+  return html;
+}
+
+/* ---------------- 模型设置 ---------------- */
+function viewCLAi() {
+  var ai = DB.ai || {};
+  var providers = DB.aiProviders || [];
+  var active = providers.filter(function (p) { return p.active; })[0] || null;
+  var html = pageHead('模型设置', '配置 OpenAI 兼容供应商，在不同大模型之间随时切换',
+    '<button class="btn btn-primary" data-act="openAiProvider">' + icon('plus') + '新增供应商</button>');
+
+  html += '<div class="alert info mb16">' + icon('info') +
+    '<div><b>兼容 OpenAI Chat Completions 协议：</b>可接入 DeepSeek、OpenAI、通义千问、Kimi、智谱 GLM、Ollama 等云端或本地模型。API Key 仅保存在服务端，页面只显示末四位。</div></div>';
+
+  if (ai.needsKey) {
+    html += '<div class="alert warn mb16">' + icon('alert') +
+      '<div>当前供应商尚未设置 API Key，云端模型暂时无法调用。请编辑供应商补充密钥，或改用本地 Ollama 等无需密钥的接口。</div></div>';
+  }
+
+  html += '<div class="stats">' +
+    statCard('当前供应商', esc(ai.provider || '未配置'), 'spark', 'purple', active ? '切换后立即生效' : '请先添加供应商') +
+    statCard('当前模型', esc(ai.model || '—'), 'layers', '', ai.configured ? '服务端已就绪' : '等待配置') +
+    statCard('连接状态', ai.configured ? tag('已就绪', 'green') : tag('待配置', 'amber'), 'check', ai.configured ? 'green' : 'amber') +
+    statCard('供应商数量', providers.length + '<small>个</small>', 'database', '', '可随时切换') +
+    '</div>';
+
+  html += '<div class="card"><div class="card-head"><h3>供应商列表</h3><span class="sub">共 ' + providers.length + ' 个 · 同一时间仅启用一个</span></div>';
+  if (!providers.length) {
+    html += '<div class="card-body">' + emptyHTML('还没有供应商配置', '点击右上角“新增供应商”，填入接口地址、模型 ID 和 API Key。', 'spark') + '</div>';
+  } else {
+    html += '<div class="table-wrap"><table class="tb"><thead><tr><th>供应商 / 模型</th><th>API Key</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
+      providers.map(function (p) {
+        return '<tr><td class="cell-main">' + esc(p.name) + '<div class="small muted">' + esc(p.model) + ' · OpenAI 兼容</div>' +
+          '<div class="small muted" style="max-width:420px;word-break:break-all">' + esc(p.baseUrl) + '</div></td>' +
+          '<td>' + (p.hasKey ? tag('已配置', 'green') + '<div class="small muted">' + esc(p.keyHint) + '</div>' : tag('未设置', 'gray')) + '</td>' +
+          '<td>' + (p.active ? tag('使用中', 'green') : tag('备用', 'gray')) + '</td>' +
+          '<td><div class="actions">' +
+          (p.active ? '<button class="btn btn-sm" disabled>使用中</button>' :
+            '<button class="btn btn-sm btn-soft" data-act="activateAiProvider" data-id="' + esc(p.id) + '">启用</button>') +
+          '<button class="btn btn-sm btn-ghost" data-act="testAiProvider" data-id="' + esc(p.id) + '">测试</button>' +
+          '<button class="btn btn-sm btn-ghost" data-act="openAiProvider" data-id="' + esc(p.id) + '">编辑</button>' +
+          '<button class="btn btn-sm btn-danger" data-act="deleteAiProvider" data-id="' + esc(p.id) + '">删除</button>' +
+          '</div></td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  html += '<div class="card-body"><div class="small muted">' + icon('info') +
+    ' 接口地址填写到版本根路径即可，例如 https://api.deepseek.com/v1；系统会自动追加 /chat/completions。切换模型无需重启服务。</div></div></div>';
+
   return html;
 }

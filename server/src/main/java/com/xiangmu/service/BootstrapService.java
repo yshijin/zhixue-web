@@ -25,11 +25,14 @@ public class BootstrapService {
     private final AuditLogRepo logs;
     private final ApiMapper mapper;
     private final SeedService seedService;
+    private final AiService ai;
+    private final AiProviderService aiProviders;
 
     public BootstrapService(CourseRepo courses, KnowledgePointRepo kps, QuestionRepo questions,
                             PaperRepo papers, AttemptRepo attempts, TeacherRepo teachers,
                             ClassGroupRepo classes, StudentRepo students, AuditLogRepo logs,
-                            ApiMapper mapper, SeedService seedService) {
+                            ApiMapper mapper, SeedService seedService, AiService ai,
+                            AiProviderService aiProviders) {
         this.courses = courses;
         this.kps = kps;
         this.questions = questions;
@@ -41,6 +44,8 @@ public class BootstrapService {
         this.logs = logs;
         this.mapper = mapper;
         this.seedService = seedService;
+        this.ai = ai;
+        this.aiProviders = aiProviders;
     }
 
     public Map<String, Object> build(AppPrincipal p) {
@@ -139,7 +144,7 @@ public class BootstrapService {
         }
 
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("version", 3);
+        out.put("version", 4);
         out.put("serverTime", Instant.now());
         out.put("user", currentUser(p));
         out.put("courses", visibleCourses.stream().map(mapper::course).toList());
@@ -160,6 +165,8 @@ public class BootstrapService {
         Set<String> existingQuestionIds = allQuestions.stream().map(q -> q.id).collect(Collectors.toSet());
         out.put("kpAvg", isStudent ? List.of() : seedList("kpAvg", "kpId", existingKpIds));
         out.put("qAccuracy", isStudent ? List.of() : seedList("qAccuracy", "qid", existingQuestionIds));
+        out.put("ai", ai.status());
+        if (isCl) out.put("aiProviders", aiProviders.listViews());
         return out;
     }
 

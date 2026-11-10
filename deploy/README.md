@@ -51,10 +51,10 @@ java -jar server\target\zhixue-server-2.0.0.jar
 | `DB_USER` | `xiangmu` | 数据库用户 |
 | `DB_PASSWORD` | `xiangmu_dev` | 数据库密码 |
 | `DEMO_RESET_ENABLED` | `false` | 设为 `true` 后才允许课程负责人调用 `/api/demo/reset` |
-| `AI_ENABLED` | `false` | 是否启用云端 AI 解读 |
-| `AI_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI-compatible 接口地址 |
-| `AI_API_KEY` | 空 | 云端 AI API Key，只放在服务端环境变量 |
-| `AI_MODEL` | `deepseek-chat` | 云端模型名称 |
+| `AI_ENABLED` | `false` | 兼容旧版的环境变量兜底开关；日常使用「模型设置」页面切换 |
+| `AI_BASE_URL` | `https://api.deepseek.com/v1` | 首次启动时默认供应商的接口地址 |
+| `AI_API_KEY` | 空 | 首次启动时默认供应商的 API Key，也可在页面填写 |
+| `AI_MODEL` | `deepseek-chat` | 首次启动时默认供应商的模型 ID |
 
 ## 3. 演示账号
 
@@ -72,19 +72,20 @@ java -jar server\target\zhixue-server-2.0.0.jar
 
 如果使用 HTTPS，请在 Nginx 上配置证书并确保 Cookie 的 `SameSite=Lax` 不会阻断同站请求。生产环境应将 `application.yml` 中的 `ddl-auto=update` 改为 `validate` 并引入 Flyway/Liquibase 迁移，同时恢复 CSRF 防护。
 
-## 5. 云端 AI
+## 5. 云端 AI 与模型切换
 
-未配置 Key 时，学生报告使用完全本地的规则诊断，仍然可用。设置：
+未配置模型时，学生报告使用完全本地的规则诊断，仍然可用。课程负责人登录后，在「系统 → 模型设置」中新增 OpenAI 兼容供应商，填写接口地址、模型 ID 和 API Key，测试连接后点击「启用」即可切换；无需重启服务。
+
+可保存多套供应商配置，在 DeepSeek、OpenAI、通义千问、Kimi、智谱 GLM、Ollama 等模型之间切换，也可随时编辑或删除。API Key 只保存在服务端，页面仅显示末四位。首次启动可从环境变量生成默认供应商：
 
 ```powershell
-$env:AI_ENABLED = "true"
 $env:AI_API_KEY = "你的 Key"
 $env:AI_BASE_URL = "https://api.deepseek.com/v1"
 $env:AI_MODEL = "deepseek-chat"
 .\start-server.ps1
 ```
 
-学生报告页会出现「云端 AI 解读」按钮；服务端组装分数、知识点、错题事实后调用云端模型。分数与正确率仍由服务端规则计算，不交给模型。
+学生报告页会出现「云端 AI 解读」按钮；服务端组装分数、知识点、错题事实后调用当前模型。分数与正确率仍由服务端规则计算，不交给模型。
 
 ## 6. CSV 批量导入
 

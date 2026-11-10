@@ -66,7 +66,7 @@ public class AiController {
         if (!"submitted".equals(attempt.status)) throw ApiException.conflict("作答尚未提交");
         if (!ai.configured()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "云端 AI 未配置：请设置环境变量 AI_ENABLED=true 与 AI_API_KEY 后重启服务；本地规则诊断仍可正常使用");
+                    "当前模型未就绪：请课程负责人在「模型设置」中选择供应商并填写 API Key；本地规则诊断仍可正常使用");
         }
         Map<String, Question> qmap = new HashMap<>();
         questions.findAll().forEach(q -> qmap.put(q.id, q));

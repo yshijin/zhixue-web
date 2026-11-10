@@ -79,6 +79,12 @@
     submitAttempt: function (id, answers) { return request('POST', 'api/attempts/' + encodeURIComponent(id) + '/submit', { answers: answers || {} }).then(withClock); },
     aiStatus: function () { return request('GET', 'api/ai/status'); },
     aiDiagnose: function (attemptId) { return request('POST', 'api/ai/diagnose', { attemptId: attemptId }); },
+    aiProviders: function () { return request('GET', 'api/ai/providers'); },
+    createAiProvider: function (p) { return request('POST', 'api/ai/providers', p); },
+    updateAiProvider: function (id, p) { return request('PUT', 'api/ai/providers/' + encodeURIComponent(id), p); },
+    deleteAiProvider: function (id) { return request('DELETE', 'api/ai/providers/' + encodeURIComponent(id)); },
+    activateAiProvider: function (id) { return request('POST', 'api/ai/providers/' + encodeURIComponent(id) + '/activate', {}); },
+    testAiProvider: function (id) { return request('POST', 'api/ai/providers/' + encodeURIComponent(id) + '/test', {}); },
     importRows: function (kind, rows, commit) {
       return request('POST', 'api/import/' + encodeURIComponent(kind), { rows: rows, commit: !!commit });
     }

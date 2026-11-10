@@ -392,7 +392,7 @@ function viewSReport(aid) {
     }).join('') + '</div>' +
     '<div class="alert info mt16">' + icon('info') + '<div>建议结合课堂进度使用本报告：先处理低表现知识点，再用错题复盘确认理解，最后通过新题检验迁移能力。</div></div></div></div>';
 
-  html += '<div class="card report-sec"><div class="card-body"><div class="small muted">报告依据：试卷快照 + 作答记录（测试 ID：' + p.id + ' / 作答 ID：' + att.id + '）。生成模型：DeepSeek 演示模型 · 提示词版本 v1.2。AI 仅负责组织语言与生成建议，分数与知识点表现均由系统规则计算。</div></div></div>';
+  html += '<div class="card report-sec"><div class="card-body"><div class="small muted">报告依据：试卷快照 + 作答记录（测试 ID：' + p.id + ' / 作答 ID：' + att.id + '）。生成模型：' + esc((DB.ai && DB.ai.model) || '规则诊断模型') + ' · 提示词版本 v1.2。AI 仅负责组织语言与生成建议，分数与知识点表现均由系统规则计算。</div></div></div>';
   return html;
 }
 

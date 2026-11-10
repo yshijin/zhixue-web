@@ -98,7 +98,9 @@ start-server.ps1                   本地启动脚本
 - `service/SeedService.java`：种子导入与演示数据重置。
 - `web/ManageController.java`：课程/知识点/题目/教师/班级/试卷管理等写入接口。
 - `web/ImportController.java`：CSV 预检与入库。
-- `service/AiService.java`：OpenAI-compatible 云端 AI，可选。
+- `service/AiService.java`：OpenAI-compatible 云端 AI 调用，读取当前启用的供应商。
+- `service/AiProviderService.java`、`web/AiProviderController.java`：模型供应商配置、切换、测试与审计。
+- `domain/AiProvider.java`、`repo/AiProviderRepo.java`：模型供应商持久化。
 - `resources/application.yml`：数据库、Session、AI、端口配置。
 
 ## 5. 关键实现约定
@@ -137,7 +139,7 @@ start-server.ps1                   本地启动脚本
 - `t8000`、`3d2y` 空班教师工作台、学生管理、创建测试、试卷、进度、统计、报告、导出均不再空白，且无控制台错误。
 - 导入教师在空班状态下完成“创建测试 → 生成预览 → 发布”链路；发布、试卷列表和空数据页均正常。
 - 教师统计、报告、进度与导出按当前试卷目标教学班过滤，避免跨班学生混入。
-- AI 未配置时 `/api/ai/status` 返回 `enabled=false`，诊断接口返回 503 提示。
+- AI 未配置时 `/api/ai/status` 返回 `configured=false`，诊断接口返回 503 提示；课程负责人可在「模型设置」中新增并切换供应商，切换后实时生效。
 - `/api/demo/reset` 恢复 6 份试卷、40 名学生、39 条 attempts、7 条审计日志。
 
 本地测试脚本保存在 `.local/`（例如 `api_test.py`、`perm_test.py`、`concurrency_test.py`、`import_test.py`、`delete_test.py`），仅用于联调，不进入 Git 和交付包。
@@ -167,7 +169,7 @@ start-server.ps1                   本地启动脚本
 
 - 登录后立刻跳回登录页：检查 Session Cookie、后端 401、数据库是否启动。
 - 403：多为跨教学班/跨教师操作，或学生调用了管理接口；删除当前登录账号所属课程返回 409，属保护逻辑。
-- AI 诊断 503：未配置 `AI_ENABLED` 与 `AI_API_KEY`，属预期行为。
+- AI 诊断 503：当前供应商未就绪，请在课程负责人「模型设置」中填写 API Key 并启用；本地规则诊断不受影响。
 - 页面数据不更新：自动刷新会跳过考试、组卷、弹窗和输入状态；可手动刷新页面。
 - 修改中文 HTML/JS 时只使用编辑器/写入工具，不要用 PowerShell 的 `Get-Content` + `Set-Content -Encoding UTF8`，避免双重编码。
 - 正式 Git for Windows 2.56 安装于 `C:\Users\35009\AppData\Local\Programs\Git`，已加入当前用户 PATH；仓库历史和配置都在 `D:\xiangmuuuu\.git`，不随 Git 安装位置变化。
