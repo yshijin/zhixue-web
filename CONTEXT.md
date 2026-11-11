@@ -80,7 +80,7 @@ assets/js/api.js                   REST 客户端、Session、服务端时钟同
 assets/js/core.js                  Bootstrap 数据、路由、统计、诊断辅助
 assets/js/views-cl.js              课程负责人页面
 assets/js/views-teacher.js         教师页面
-assets/js/views-student.js         学生考试/结果/报告/历史
+assets/js/views-student.js         学生考试/结果/报告/历史（含学生移动端视图）
 assets/js/actions.js               路由动作、自动刷新、CSV 导入、AI、导出
 assets/js/data.js                  旧静态版数据，仅作视觉与字段参考
 server/                            Spring Boot 后端
@@ -114,6 +114,7 @@ start-server.ps1                   本地启动脚本
 - 考试时间以服务器 `startedAt` 为准；前端用 `serverTime` 校正时钟，超时由服务端兜底。
 - 学生端未开放试卷不下发题目内容；答案/解析根据 `answerPolicy` 脱敏。
 - 教师只能操作本人教学班和本人试卷；学生只能访问本班已发布试卷；管理接口仅课程负责人可用。
+- 学生移动端由 `core.js` 的 `isStudentMobile()` 识别：仅学生角色根据手机/平板 UA 启用，桌面学生、教师和课程负责人保持原桌面布局。移动端使用 `body.student-mobile` 独立顶栏、底部导航和移动视图；调试时可用 `?mobile=1` / `?mobile=0` 临时覆盖。
 - 彻底删除教师在事务中级联删除教师账号、其教学班、班内学生账号、关联试卷和全部作答记录，并重算课程教学班数量；彻底删除学生删除学生账号和全部作答记录，并扣减教学班人数。确认弹窗展示影响范围，操作不可恢复，并写入审计日志。
 - 彻底删除课程会级联删除课程下知识点、题目、教师账号、教学班、学生账号、关联试卷和作答；当前登录账号所属课程禁止删除，接口返回 409，页面按钮禁用并给出提示。
 - 彻底删除知识点会级联删除其下题目及引用这些题目的试卷/作答；删除题目会级联删除引用该题的试卷及作答；删除试卷只删除试卷和作答，保留题目、知识点。

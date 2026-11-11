@@ -14,6 +14,7 @@ function viewSTests() {
   var ended = papers.filter(function (p) { return paperStatus(p).key === 'ended' || paperStatus(p).key === 'archived'; });
   var myAttempts = attemptsOf();
   var avg = myAttempts.length ? Math.round(myAttempts.reduce(function (a, x) { return a + pct(x.score, x.total); }, 0) / myAttempts.length) : 0;
+  if (isStudentMobile()) return viewSTestsMobile(ongoing, upcoming, ended, myAttempts, avg);
 
   var html = pageHead('我的测试', '软件24201 · 完成教师发布的课程测评');
 
@@ -66,6 +67,69 @@ function viewSTests() {
         '<td>' + (att ? '<button class="btn btn-sm btn-ghost" data-act="go" data-to="s/result/' + att.id + '">' + icon('eye') + '查看结果</button>' : '<span class="muted small">—</span>') + '</td></tr>';
     }).join('') : '<tr><td colspan="6">' + emptyHTML('暂无已结束的测评', '', 'file') + '</td></tr>') +
     '</tbody></table></div></div>';
+  return html;
+}
+
+/* ---------------- 学生移动端：测试列表 ---------------- */
+function mobileSectionHead(title, sub) {
+  return '<div class="m-sec-head"><h2>' + title + '</h2>' + (sub ? '<span>' + sub + '</span>' : '') + '</div>';
+}
+
+function viewSTestsMobile(ongoing, upcoming, ended, myAttempts, avg) {
+  var pending = ongoing.filter(function (p) { return !attemptOf(p.id); }).length;
+  var html = '<div class="welcome m-welcome"><h2>嗨，' + esc(user.name) + '</h2>' +
+    '<p>当前有 <b>' + pending + '</b> 场测评待完成。完成后系统会自动生成知识点诊断与学习建议。</p></div>';
+
+  html += '<div class="stats">' +
+    statCard('待完成', pending + '<small>场</small>', 'clock', 'amber') +
+    statCard('已完成', myAttempts.length + '<small>场</small>', 'check', 'green') +
+    statCard('平均正确率', avg + '%', 'target', '') +
+    statCard('学习报告', myAttempts.length + '<small>份</small>', 'spark', 'purple') +
+    '</div>';
+
+  if (ongoing.length) {
+    html += mobileSectionHead('进行中的测评', ongoing.length + ' 场');
+    ongoing.forEach(function (p) {
+      var att = attemptOf(p.id);
+      html += '<div class="m-test-card"><div class="m-test-tags">' + statusTag(p) +
+        tag(p.items.length + ' 题', 'gray') + tag(p.duration + ' 分钟', 'gray') + '</div>' +
+        '<h3>' + esc(p.name) + '</h3>' +
+        '<div class="m-test-meta">' + icon('users') + '<span>' + esc(p.teacherName) + ' · ' + esc(p.className) + '</span></div>' +
+        '<div class="m-test-meta">' + icon('clock') + '<span>截止 ' + fmtDT(p.endAt) + '</span></div>' +
+        '<div class="m-test-foot">' +
+        (att
+          ? '<div class="m-test-score"><b>' + att.score + '</b><small>我的得分 / ' + att.total + '</small></div>' +
+            '<button class="btn btn-soft" data-act="go" data-to="s/result/' + att.id + '">查看结果</button>'
+          : '<div class="m-test-score"><b>' + paperTotal(p) + '</b><small>满分</small></div>' +
+            '<button class="btn btn-primary" data-act="startExam" data-id="' + p.id + '">' + icon('play') + '开始作答</button>') +
+        '</div></div>';
+    });
+  }
+
+  if (upcoming.length) {
+    html += mobileSectionHead('即将开始', upcoming.length + ' 场') + '<div class="m-list">' +
+      upcoming.map(function (p) {
+        return '<div class="m-list-item"><div class="m-list-ico">' + icon('calendar') + '</div>' +
+          '<div class="grow"><b>' + esc(p.name) + '</b><small>' + esc(p.teacherName) + ' · ' +
+          fmtDT(p.startAt) + ' 开放</small></div><span class="tag blue">未开始</span></div>';
+      }).join('') + '</div>';
+  }
+
+  html += mobileSectionHead('已结束的测评', ended.length + ' 场');
+  if (ended.length) {
+    html += '<div class="m-record-list">' + ended.map(function (p) {
+      var att = attemptOf(p.id);
+      var lv = att ? levelOf(pct(att.score, att.total)) : null;
+      return '<div class="m-record-card"><div class="m-record-top"><b>' + esc(p.name) + '</b>' +
+        (att ? '<span class="m-record-score">' + att.score + '<small>/' + att.total + '</small></span>' : '<span class="tag gray">未参加</span>') +
+        '</div><div class="m-record-sub">' + esc(p.teacherName) + ' · 截止 ' + fmtDT(p.endAt) + '</div>' +
+        (att ? '<div class="m-record-foot">' + tag(lv.label, lv.cls) +
+          '<button class="btn btn-sm btn-ghost" data-act="go" data-to="s/result/' + att.id + '">' + icon('eye') + '查看结果</button></div>' : '') +
+        '</div>';
+    }).join('') + '</div>';
+  } else {
+    html += '<div class="card"><div class="card-body">' + emptyHTML('暂无已结束的测评', '教师结束测评后会显示在这里。', 'file') + '</div></div>';
+  }
   return html;
 }
 
@@ -317,6 +381,16 @@ function viewSResult(aid) {
 }
 
 /* ---------------- AI 学习报告 ---------------- */
+function mobileKpList(kps) {
+  return '<div class="m-kp-list">' + kps.map(function (k) {
+    var lv = levelOf(k.rate);
+    return '<div class="m-kp-item"><div class="m-kp-top"><b>' + esc(k.name) + '</b>' + tag(lv.label, lv.cls) + '</div>' +
+      '<div class="m-kp-rate"><div class="progress ' + (k.rate >= 85 ? 'green' : k.rate >= 70 ? '' : k.rate >= 60 ? 'amber' : 'red') + '">' +
+      '<i style="width:' + k.rate + '%"></i></div><b>' + k.rate + '%</b></div>' +
+      '<div class="m-kp-meta"><span>共 ' + k.count + ' 题</span><span>答对 ' + k.right + ' 题</span><span>' + esc(lv.advice) + '</span></div></div>';
+  }).join('') + '</div>';
+}
+
 function viewSReport(aid) {
   var att = DB.attempts.filter(function (a) { return a.id === aid && a.studentId === user.id; })[0];
   if (!att) att = attemptsOf()[0];
@@ -346,7 +420,7 @@ function viewSReport(aid) {
     '<span>' + fmtFull(att.submittedAt) + '</span><span class="tag purple">AI 生成</span></div></div>' +
     '<div class="rh-level"><span class="small muted">整体表现</span><div class="lv" style="color:' + lvColor + '">' + rep.level.label + '</div></div></div>';
 
-  html += '<div class="card report-sec"><div class="card-head"><h3>一、总体表现</h3></div><div class="card-body"><div class="row" style="gap:28px;flex-wrap:wrap">' +
+  html += '<div class="card report-sec"><div class="card-head"><h3>一、总体表现</h3></div><div class="card-body"><div class="row report-overview" style="gap:28px;flex-wrap:wrap">' +
     donutHTML(rep.overall, '正确率', rep.overall >= 85 ? 'green' : '') +
     '<div class="grow"><div class="report-insight">' +
     '<div class="insight"><small>本次得分</small><b>' + att.score + ' / ' + att.total + '</b></div>' +
@@ -355,19 +429,21 @@ function viewSReport(aid) {
     '<div class="insight"><small>表现等级</small><b>' + rep.level.label + '</b></div></div>' +
     '<div class="report-text mt12">' + esc(rep.summary) + '</div></div></div></div></div>';
 
-  html += '<div class="card report-sec"><div class="card-head"><h3>二、知识点掌握情况</h3><span class="sub">按主知识点计分</span></div><div class="card-body">' +
+  var kpBody = isStudentMobile() ? mobileKpList(rep.kps) :
     '<div class="table-wrap"><table class="tb"><thead><tr><th>知识点</th><th>题数</th><th>答对</th><th>得分率</th><th>表现</th><th>建议</th></tr></thead><tbody>' +
     rep.kps.map(function (k) {
       var lv = levelOf(k.rate);
       return '<tr><td class="cell-main">' + esc(k.name) + '</td><td class="num">' + k.count + '</td><td class="num">' + k.right + '</td>' +
         '<td><div class="progress-row" style="min-width:130px"><div class="progress ' + (k.rate >= 85 ? 'green' : k.rate >= 70 ? '' : k.rate >= 60 ? 'amber' : 'red') + '"><i style="width:' + k.rate + '%"></i></div><b>' + k.rate + '%</b></div></td>' +
         '<td>' + tag(lv.label, lv.cls) + '</td><td class="small muted">' + lv.advice + '</td></tr>';
-    }).join('') + '</tbody></table></div>' +
+    }).join('') + '</tbody></table></div>';
+  html += '<div class="card report-sec"><div class="card-head"><h3>二、知识点掌握情况</h3><span class="sub">按主知识点计分</span></div><div class="card-body">' +
+    kpBody +
     (rep.lowSample ? '<div class="alert warn mt12">' + icon('alert') + '<div>部分知识点仅由 1 道题支撑，学习诊断的证据有限，建议增加对应练习后再判断。</div></div>' : '') +
     '</div></div>';
 
   if (rep.trend) {
-    html += '<div class="card report-sec"><div class="card-head"><h3>三、进步趋势</h3><span class="sub">与上一次测评对比</span></div><div class="card-body row" style="gap:28px;flex-wrap:wrap">' +
+    html += '<div class="card report-sec"><div class="card-head"><h3>三、进步趋势</h3><span class="sub">与上一次测评对比</span></div><div class="card-body row report-trend" style="gap:28px;flex-wrap:wrap">' +
       '<div style="min-width:220px"><div class="trend-line">' +
       '<div class="tl-col"><div class="tl-bar" style="height:' + Math.max(8, Math.round(rep.trend.prevRate * 0.7)) + 'px"></div><div class="tl-cap">上次 ' + rep.trend.prevRate + '%</div></div>' +
       '<div class="tl-col"><div class="tl-bar hi" style="height:' + Math.max(8, Math.round(rep.overall * 0.7)) + 'px"></div><div class="tl-cap">本次 ' + rep.overall + '%</div></div>' +
@@ -402,6 +478,7 @@ function viewSHistory() {
   var rates = list.map(function (a) { return pct(a.score, a.total); });
   var avg = rates.length ? Math.round(rates.reduce(function (a, b) { return a + b; }, 0) / rates.length) : 0;
   var best = rates.length ? Math.max.apply(null, rates) : 0;
+  if (isStudentMobile()) return viewSHistoryMobile(list, avg, best);
   var html = pageHead('历史记录', '历次测评成绩与知识点变化',
     '<button class="btn" data-act="go" data-to="s/tests">' + icon('arrowLeft') + '返回我的测试</button>');
 
@@ -434,5 +511,44 @@ function viewSHistory() {
         '<button class="btn btn-sm btn-ghost" data-act="go" data-to="s/report/' + a.id + '">' + icon('spark') + '诊断</button></div></td></tr>';
     }).join('') : '<tr><td colspan="6">' + emptyHTML('还没有测评记录', '完成一次测评后即可查看。', 'clock') + '</td></tr>') +
     '</tbody></table></div></div>';
+  return html;
+}
+
+/* ---------------- 学生移动端：历史记录 ---------------- */
+function viewSHistoryMobile(list, avg, best) {
+  var html = '<div class="stats">' +
+    statCard('参测次数', list.length + '<small>次</small>', 'clipboard', '') +
+    statCard('平均正确率', avg + '%', 'target', 'green') +
+    statCard('最好成绩', best + '%', 'check', 'purple') +
+    statCard('学习报告', list.length + '<small>份</small>', 'spark', 'amber') +
+    '</div>';
+
+  if (list.length) {
+    html += '<div class="card m-chart-card"><div class="card-head"><h3>成绩趋势</h3><span class="sub">按测评时间排序</span></div>' +
+      '<div class="card-body"><div class="hbars m-hbars" style="height:130px">' +
+      list.slice().reverse().map(function (a) {
+        var r = pct(a.score, a.total);
+        var p = PAPER(a.paperId);
+        return '<div class="hbar-col"><div class="hb" style="height:' + Math.max(8, Math.round(r * 0.85)) + 'px"><span>' + r + '%</span></div>' +
+          '<div class="cap">' + (p ? esc(p.name.replace('知识点测验', '')) : '') + '</div></div>';
+      }).join('') + '</div></div></div>';
+  }
+
+  html += mobileSectionHead('测评记录', '共 ' + list.length + ' 条');
+  if (list.length) {
+    html += '<div class="m-record-list">' + list.map(function (a) {
+      var p = PAPER(a.paperId);
+      var r = pct(a.score, a.total);
+      var lv = levelOf(r);
+      return '<div class="m-record-card"><div class="m-record-top"><b>' + esc(p ? p.name : '—') + '</b>' +
+        '<span class="m-record-score">' + a.score + '<small>/' + a.total + '</small></span></div>' +
+        '<div class="m-record-sub">' + (p ? esc(p.teacherName) + ' · ' : '') + fmtDT(a.submittedAt) + ' · 正确率 ' + r + '%</div>' +
+        '<div class="m-record-foot">' + tag(lv.label, lv.cls) +
+        '<div class="m-record-actions"><button class="btn btn-sm" data-act="go" data-to="s/result/' + a.id + '">结果</button>' +
+        '<button class="btn btn-sm btn-soft" data-act="go" data-to="s/report/' + a.id + '">' + icon('spark') + '诊断</button></div></div></div>';
+    }).join('') + '</div>';
+  } else {
+    html += '<div class="card"><div class="card-body">' + emptyHTML('还没有测评记录', '完成一次测评后即可查看。', 'clock') + '</div></div>';
+  }
   return html;
 }

@@ -391,6 +391,53 @@ function parseRoute() {
   return { prefix: parts[0] || '', page: parts[1] || '', param: parts[2] || '', key: (parts[0] || '') + '/' + (parts[1] || '') };
 }
 function go(key) { location.hash = '#/' + key; }
+
+/* 学生端手机浏览器识别：只对学生角色启用移动端壳层，教师/课程负责人保持桌面布局。 */
+function isStudentMobile() {
+  if (!user || user.role !== 'student') return false;
+  var query = '';
+  try { query = new URLSearchParams(location.search).get('mobile') || ''; } catch (e) {}
+  if (query === '1') return true;
+  if (query === '0') return false;
+  try {
+    var saved = sessionStorage.getItem('zhixue_mobile_view');
+    if (saved === '1') return true;
+    if (saved === '0') return false;
+  } catch (e) {}
+  var ua = navigator.userAgent || '';
+  return /Android|iPhone|iPad|iPod|Windows Phone|IEMobile|Mobile|HarmonyOS/i.test(ua) ||
+    (navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua));
+}
+function studentRouteLabel(key) {
+  var label = '';
+  (NAV.student || []).forEach(function (g) {
+    g.items.forEach(function (it) { if (it.key === key) label = it.label; });
+  });
+  if (label) return label;
+  return { 's/result': '测评结果', 's/report': '学习诊断', 's/exam': '在线作答' }[key] || '学生中心';
+}
+function renderMobileStudentChrome(activeKey) {
+  var header = $('#mHeader'), tabbar = $('#mTabbar');
+  if (!header || !tabbar) return;
+  var label = studentRouteLabel(activeKey);
+  var pending = myOngoingTests().length;
+  header.innerHTML = '<a class="mh-brand" href="#/' + ROLE_HOME.student + '"><div class="brand-mark">智</div>' +
+    '<span class="mh-text"><b>智学测评</b><small>' + esc(label) + '</small></span></a>' +
+    '<div class="mh-user"><div class="avatar">' + esc(user.name.slice(-2)) + '</div>' +
+    '<button class="mh-logout" data-act="logout" title="退出登录">' + icon('logout') + '</button></div>';
+  var latest = attemptsOf()[0];
+  var tabs = [
+    { key: 's/tests', label: '我的测试', icon: 'clipboard', href: '#/s/tests', badge: pending },
+    { key: 's/history', label: '历史记录', icon: 'clock', href: '#/s/history' },
+    { key: 's/report', label: '学习报告', icon: 'spark', href: latest ? '#/s/report/' + latest.id : '#/s/history' }
+  ];
+  var current = activeKey === 's/result' ? 's/history' : activeKey;
+  tabbar.innerHTML = tabs.map(function (t) {
+    return '<a class="m-tab ' + (t.key === current ? 'active' : '') + '" href="' + t.href + '">' +
+      '<span class="m-tab-ico">' + icon(t.icon) + (t.badge ? '<i class="m-tab-badge">' + t.badge + '</i>' : '') + '</span>' +
+      '<span>' + t.label + '</span></a>';
+  }).join('');
+}
 function renderSidebar(activeKey) {
   var groups = NAV[user.role] || [];
   var html = '<div class="side-brand"><div class="brand-mark">智</div><div><b>智学测评</b><small>知识点 · 诊断 · 改进</small></div></div><nav class="nav">';
@@ -436,12 +483,25 @@ function render() {
   if (!r.prefix || r.prefix !== prefix) { location.hash = '#/' + home; return; }
   var fn = ROUTES[r.key];
   if (!fn) { location.hash = '#/' + home; return; }
+  var mobile = isStudentMobile();
+  document.body.classList.toggle('student-mobile', mobile);
+  document.body.classList.toggle('student-desktop', user.role === 'student' && !mobile);
+  document.body.classList.toggle('student-exam', mobile && r.key === 's/exam');
+  document.body.dataset.route = r.key;
   var shell = $('#shell');
   shell.classList.toggle('focus', r.key === 's/exam');
   $('#content').innerHTML = fn(r.param);
-  renderSidebar(r.key);
-  renderTopbar(r.key);
-  document.title = '工作台 · 智学测评';
+  if (mobile) {
+    renderMobileStudentChrome(r.key);
+    document.title = studentRouteLabel(r.key) + ' · 智学测评';
+  } else {
+    renderSidebar(r.key);
+    renderTopbar(r.key);
+    var mh = $('#mHeader'), mt = $('#mTabbar');
+    if (mh) mh.innerHTML = '';
+    if (mt) mt.innerHTML = '';
+    document.title = '工作台 · 智学测评';
+  }
   window.scrollTo(0, 0);
   requestAnimationFrame(function () { window.scrollTo(0, 0); });
   setTimeout(function () { window.scrollTo(0, 0); }, 60);
