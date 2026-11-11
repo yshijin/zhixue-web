@@ -1321,6 +1321,9 @@ document.addEventListener('change', function (e) {
   if (el.dataset.select === 'progressPaper') {
     S.progressPaper = el.value; render(); return;
   }
+  if (el.dataset.select === 'reportPaper') {
+    S.reportPaper = el.value; render(); return;
+  }
   if (el.id === 'fqType') { toggleQuestionTypeFields(); return; }
   if (el.dataset.wiz) {
     updateWizardField(el);
