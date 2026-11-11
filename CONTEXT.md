@@ -80,7 +80,7 @@ assets/js/api.js                   REST 客户端、Session、服务端时钟同
 assets/js/core.js                  Bootstrap 数据、路由、统计、诊断辅助
 assets/js/views-cl.js              课程负责人页面
 assets/js/views-teacher.js         教师页面
-assets/js/views-student.js         学生考试/结果/报告/历史（含学生移动端视图）
+assets/js/views-student.js         学生考试/结果/报告/历史/错题本（含学生移动端视图）
 assets/js/actions.js               路由动作、自动刷新、CSV 导入、AI、导出
 assets/js/data.js                  旧静态版数据，仅作视觉与字段参考
 server/                            Spring Boot 后端
@@ -95,6 +95,8 @@ start-server.ps1                   本地启动脚本
 - `security/AccountUserDetailsService.java`、`security/AppPrincipal.java`：账号加载与当前用户。
 - `service/BootstrapService.java`：按角色过滤数据、答案脱敏、`attempt.correct` 计算。
 - `service/AttemptService.java`：开始/恢复、自动保存、交卷、判分、超时与并发锁。
+- `service/WrongBookService.java`：按已提交作答实时汇总错题，生成/删除个人错题测试。
+- `web/WrongBookController.java`：学生个人错题测试新增/删除接口。
 - `service/SeedService.java`：种子导入与演示数据重置。
 - `web/ManageController.java`：课程/知识点/题目/教师/班级/试卷管理等写入接口。
 - `web/ImportController.java`：CSV 预检与入库。
@@ -114,6 +116,9 @@ start-server.ps1                   本地启动脚本
 - 考试时间以服务器 `startedAt` 为准；前端用 `serverTime` 校正时钟，超时由服务端兜底。
 - 学生端未开放试卷不下发题目内容；答案/解析根据 `answerPolicy` 脱敏。
 - 教师只能操作本人教学班和本人试卷；学生只能访问本班已发布试卷；管理接口仅课程负责人可用。
+- 错题本不单独存题目正文，而是从当前学生已提交的 `attempt`、试卷题目快照和题库标准答案实时汇总；同一题多次答错合并展示并记录答错次数，后续答对标记“已订正”。
+- 个人错题测试复用 `Paper`/`Attempt`：`paper.owner_student_id` 非空表示学生个人试卷，`teacher_id` 也写为学生 id，`class_ids` 为空；学生 Bootstrap 仅下发本人个人试卷，教师和课程负责人列表/作答/审计均过滤，其他学生开始作答或删除返回 403。
+- 个人错题测试每题 5 分，默认有效期 30 天、`answerPolicy=afterSubmit`、单次作答；教师和课程负责人不能结束或删除个人试卷。
 - 学生移动端由 `core.js` 的 `isStudentMobile()` 识别：仅学生角色根据手机/平板 UA 启用，桌面学生、教师和课程负责人保持原桌面布局。移动端使用 `body.student-mobile` 独立顶栏、底部导航和移动视图；调试时可用 `?mobile=1` / `?mobile=0` 临时覆盖。
 - 彻底删除教师在事务中级联删除教师账号、其教学班、班内学生账号、关联试卷和全部作答记录，并重算课程教学班数量；彻底删除学生删除学生账号和全部作答记录，并扣减教学班人数。确认弹窗展示影响范围，操作不可恢复，并写入审计日志。
 - 彻底删除课程会级联删除课程下知识点、题目、教师账号、教学班、学生账号、关联试卷和作答；当前登录账号所属课程禁止删除，接口返回 409，页面按钮禁用并给出提示。
@@ -141,6 +146,8 @@ start-server.ps1                   本地启动脚本
 - 导入教师在空班状态下完成“创建测试 → 生成预览 → 发布”链路；发布、试卷列表和空数据页均正常。
 - 教师统计、报告、进度与导出按当前试卷目标教学班过滤，避免跨班学生混入。
 - AI 未配置时 `/api/ai/status` 返回 `configured=false`，诊断接口返回 503 提示；课程负责人可在「模型设置」中新增并切换供应商，切换后实时生效。
+- 学生 `20260001` 错题本正确汇总 58 道错题（含答错次数、来源、知识点、标准答案/解析与已订正状态）；桌面与 `?mobile=1` 手机端均正常显示导航、筛选、勾选与生成入口。
+- 通过错题本生成 3 题个人测试后，仅该学生 Bootstrap 可见；开始、作答、交卷、判分、结果页、历史记录与删除均正常。其他学生开始/删除返回 403，教师和课程负责人 Bootstrap 不含个人试卷与作答，结束/删除接口返回 403。
 - `/api/demo/reset` 恢复 6 份试卷、40 名学生、39 条 attempts、7 条审计日志。
 
 本地测试脚本保存在 `.local/`（例如 `api_test.py`、`perm_test.py`、`concurrency_test.py`、`import_test.py`、`delete_test.py`），仅用于联调，不进入 Git 和交付包。
@@ -162,9 +169,10 @@ start-server.ps1                   本地启动脚本
 2. 使用最新源码重新构建 jar，启动时不设置 `DEMO_RESET_ENABLED`。
 3. 打开 <http://127.0.0.1:8080>，确认登录页中文和样式正常。
 4. 分别登录 `admin`、`zhaolin`、`20260001`，确认可见数据符合角色。
-5. 学生端确认 p1 可进入；教师端确认完成人数 37/40；负责人端确认审计日志存在。
-6. 打开 CSV 导入预检后取消，不写数据库；如需演示重置，临时开启后重启并再次关闭。
-7. 确认 Git 状态干净、交付 ZIP 不含 `.local/`、`server/target/` 之外的运行时目录和 PostgreSQL 二进制。
+5. 学生端确认 p1 可进入；打开「错题本」确认错题汇总、筛选和生成个人测试可用；用 `?mobile=1` 确认手机端第 4 个「错题本」标签正常。
+6. 确认个人错题测试在教师/课程负责人端不可见；用其他学生账号访问该测试返回 403。
+7. 打开 CSV 导入预检后取消，不写数据库；如需演示重置，临时开启后重启并再次关闭。
+8. 确认 Git 状态干净、交付 ZIP 不含 `.local/`、`server/target/` 之外的运行时目录和 PostgreSQL 二进制。
 
 ## 9. 排障
 

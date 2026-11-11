@@ -27,12 +27,13 @@ public class BootstrapService {
     private final SeedService seedService;
     private final AiService ai;
     private final AiProviderService aiProviders;
+    private final WrongBookService wrongBook;
 
     public BootstrapService(CourseRepo courses, KnowledgePointRepo kps, QuestionRepo questions,
                             PaperRepo papers, AttemptRepo attempts, TeacherRepo teachers,
                             ClassGroupRepo classes, StudentRepo students, AuditLogRepo logs,
                             ApiMapper mapper, SeedService seedService, AiService ai,
-                            AiProviderService aiProviders) {
+                            AiProviderService aiProviders, WrongBookService wrongBook) {
         this.courses = courses;
         this.kps = kps;
         this.questions = questions;
@@ -46,6 +47,7 @@ public class BootstrapService {
         this.seedService = seedService;
         this.ai = ai;
         this.aiProviders = aiProviders;
+        this.wrongBook = wrongBook;
     }
 
     public Map<String, Object> build(AppPrincipal p) {
@@ -69,9 +71,15 @@ public class BootstrapService {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         if (isStudent && p.classId != null) ownClassIds.add(p.classId);
 
+        Set<String> personalPaperIds = allPapers.stream()
+                .filter(x -> x.ownerStudentId != null && !x.ownerStudentId.isBlank())
+                .map(x -> x.id)
+                .collect(Collectors.toSet());
         List<Paper> visiblePapers = allPapers.stream().filter(paper -> {
-            if (isCl) return true;
-            if (isTeacher) return p.id.equals(paper.teacherId);
+            boolean personal = paper.ownerStudentId != null && !paper.ownerStudentId.isBlank();
+            if (isCl) return !personal;
+            if (isTeacher) return !personal && p.id.equals(paper.teacherId);
+            if (personal) return p.id.equals(paper.ownerStudentId) && !"draft".equals(paper.status);
             if (!"draft".equals(paper.status)) {
                 List<String> ids = mapper.read(paper.classIdsJson, new TypeReference<List<String>>() {}, List.of());
                 return ids.contains(p.classId);
@@ -93,7 +101,7 @@ public class BootstrapService {
         }).toList();
 
         List<Attempt> visibleAttempts = allAttempts.stream().filter(a -> {
-            if (isCl) return true;
+            if (isCl) return !personalPaperIds.contains(a.paperId);
             if (isTeacher) return visiblePaperIds.contains(a.paperId);
             return p.id.equals(a.studentId);
         }).toList();
@@ -166,6 +174,7 @@ public class BootstrapService {
         out.put("kpAvg", isStudent ? List.of() : seedList("kpAvg", "kpId", existingKpIds));
         out.put("qAccuracy", isStudent ? List.of() : seedList("qAccuracy", "qid", existingQuestionIds));
         out.put("ai", ai.status());
+        if (isStudent) out.put("wrongBook", wrongBook.build(p));
         if (isCl) out.put("aiProviders", aiProviders.listViews());
         return out;
     }

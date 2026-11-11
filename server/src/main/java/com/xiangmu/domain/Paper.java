@@ -12,6 +12,9 @@ public class Paper {
     public String courseId;
     public String teacherId;
     public String teacherName;
+    /** 非空表示学生个人错题测试，只允许该学生本人查看和作答。 */
+    @Column(name = "owner_student_id")
+    public String ownerStudentId;
     @Column(columnDefinition = "text")
     public String classIdsJson;
     public String className;

@@ -57,6 +57,10 @@ public class AiController {
         if ("student".equals(p.role) && !p.id.equals(attempt.studentId)) {
             throw ApiException.forbidden("不能查看他人的作答");
         }
+        if (paper.ownerStudentId != null && !paper.ownerStudentId.isBlank()
+                && !p.id.equals(paper.ownerStudentId)) {
+            throw ApiException.forbidden("个人错题测试仅学生本人可查看");
+        }
         if ("teacher".equals(p.role) && !p.id.equals(paper.teacherId)) {
             throw ApiException.forbidden("不能查看其他教师试卷的作答");
         }

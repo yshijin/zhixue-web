@@ -4,7 +4,10 @@
 
 function myClassPapers() {
   var cid = user.classId || 'c1';
-  return DB.papers.filter(function (p) { return p.classIds.indexOf(cid) > -1 && p.status !== 'draft'; });
+  return DB.papers.filter(function (p) {
+    if (p.ownerStudentId) return false;
+    return p.classIds.indexOf(cid) > -1 && p.status !== 'draft';
+  });
 }
 
 function viewSTests() {
@@ -469,6 +472,197 @@ function viewSReport(aid) {
     '<div class="alert info mt16">' + icon('info') + '<div>建议结合课堂进度使用本报告：先处理低表现知识点，再用错题复盘确认理解，最后通过新题检验迁移能力。</div></div></div></div>';
 
   html += '<div class="card report-sec"><div class="card-body"><div class="small muted">报告依据：试卷快照 + 作答记录（测试 ID：' + p.id + ' / 作答 ID：' + att.id + '）。生成模型：' + esc((DB.ai && DB.ai.model) || '规则诊断模型') + ' · 提示词版本 v1.2。AI 仅负责组织语言与生成建议，分数与知识点表现均由系统规则计算。</div></div></div>';
+  return html;
+}
+
+/* ---------------- 错题本 ---------------- */
+function ensureWrongSelection() {
+  if (!S.wrong) S.wrong = { sel: {}, source: '', kp: '', kw: '', ready: false };
+  var all = wrongBookEntries();
+  if (!S.wrong.ready && all.length) {
+    all.forEach(function (e) { S.wrong.sel[e.qid] = true; });
+    S.wrong.ready = true;
+  }
+  var ids = {};
+  all.forEach(function (e) { ids[e.qid] = true; });
+  Object.keys(S.wrong.sel).forEach(function (qid) {
+    if (!ids[qid]) delete S.wrong.sel[qid];
+  });
+}
+
+function wrongFilteredEntries() {
+  var kw = String((S.wrong && S.wrong.kw) || '').trim().toLowerCase();
+  return wrongBookEntries().filter(function (e) {
+    if (S.wrong.source && e.sourcePaperId !== S.wrong.source) return false;
+    if (S.wrong.kp && e.kpId !== S.wrong.kp) return false;
+    if (kw) {
+      var text = [e.stem, e.kpName, e.sourcePaperName, e.answer, e.myAnswer].join(' ').toLowerCase();
+      if (text.indexOf(kw) < 0) return false;
+    }
+    return true;
+  });
+}
+
+function wrongSelectedEntries() {
+  return wrongBookEntries().filter(function (e) { return !!(S.wrong && S.wrong.sel[e.qid]); });
+}
+
+function wrongOptionsHTML(e) {
+  var answerKeys = e.answerVisible ? String(e.answer || '').split('') : [];
+  var mineKeys = String(e.myAnswer || '').split('');
+  return '<div class="wrong-options">' + (e.options || []).map(function (o) {
+    var right = answerKeys.indexOf(o.key) > -1;
+    var picked = mineKeys.indexOf(o.key) > -1;
+    var mark = right ? '<span class="wom ok">标准答案</span>' : (picked ? '<span class="wom no">你的选择</span>' : '');
+    return '<div class="wrong-option ' + (right ? 'right ' : '') + (picked ? 'picked' : '') + '">' +
+      '<span class="key">' + (e.type === 'judge' ? (o.key === 'T' ? '✓' : '✕') : esc(o.key)) + '</span>' +
+      '<span class="txt">' + esc(o.text) + '</span>' + mark + '</div>';
+  }).join('') + '</div>';
+}
+
+function wrongEntryHTML(e) {
+  var picked = !!(S.wrong && S.wrong.sel[e.qid]);
+  var q = QBY(e.qid) || e;
+  var source = e.sourcePaperName || '历史测评';
+  var answerHtml = '<div class="wrong-answer"><span>最近错答：<b class="no">' + esc(answerText(q, e.myAnswer)) + '</b></span>' +
+    (e.answerVisible ? '<span>标准答案：<b class="ok">' + esc(answerText(q, e.answer)) + '</b></span>' : '') +
+    '<span>本题原分值：' + e.score + ' 分</span></div>';
+  var analysis = e.answerVisible
+    ? '<div class="wrong-analysis"><b>解析</b>' + esc(e.analysis || '暂无解析') + '</div>'
+    : '<div class="wrong-hint">' + icon('info') + '<span>原测试未开放标准答案，生成错题测试并提交后即可查看答案与解析。</span></div>';
+  return '<div class="wrong-item ' + (picked ? 'selected' : '') + '" data-qid="' + esc(e.qid) + '">' +
+    '<label class="wrong-check" title="选择这道错题"><input type="checkbox" data-wrongq="' + esc(e.qid) + '"' +
+    (picked ? ' checked' : '') + ' aria-label="选择题目"><i>' + icon('check2') + '</i></label>' +
+    '<div class="wrong-main"><div class="wrong-head"><div class="wrong-source">' + icon('bookOpen') +
+    '<span>' + esc(source) + ' · ' + fmtDT(e.lastWrongAt) + '</span></div><div class="wrong-tags">' +
+    tag(e.kpName, 'blue') + tag({ single: '单选题', multi: '多选题', judge: '判断题' }[e.type] || '题目', 'gray') +
+    (e.wrongCount > 1 ? tag('答错 ' + e.wrongCount + ' 次', 'amber') : '') +
+    tag(e.corrected ? '已订正' : '待订正', e.corrected ? 'green' : 'amber') + '</div></div>' +
+    '<div class="wrong-stem">' + esc(e.stem) + '</div>' + wrongOptionsHTML(e) + answerHtml + analysis +
+    '</div></div>';
+}
+
+function wrongListHTML() {
+  var list = wrongFilteredEntries();
+  if (!list.length) {
+    return emptyHTML(wrongBookEntries().length ? '当前筛选下没有错题' : '还没有错题记录',
+      wrongBookEntries().length ? '试试切换来源测试或知识点筛选。' : '完成一次教师发布的测评后，答错的题会自动收进这里。', 'bookOpen');
+  }
+  return '<div class="wrong-list">' + list.map(wrongEntryHTML).join('') + '</div>';
+}
+
+function wrongSourceOptions() {
+  var map = {};
+  wrongBookEntries().forEach(function (e) {
+    if (e.sourcePaperId) map[e.sourcePaperId] = e.sourcePaperName || e.sourcePaperId;
+  });
+  return Object.keys(map).sort(function (a, b) {
+    return String(map[a]).localeCompare(String(map[b]), 'zh-CN');
+  }).map(function (id) {
+    return '<option value="' + esc(id) + '"' + (S.wrong.source === id ? ' selected' : '') + '>' + esc(map[id]) + '</option>';
+  }).join('');
+}
+
+function wrongKpOptions() {
+  var map = {};
+  wrongBookEntries().forEach(function (e) {
+    if (e.kpId && !map[e.kpId]) map[e.kpId] = e.kpName || e.kpId;
+  });
+  return Object.keys(map).sort(function (a, b) {
+    return String(map[a]).localeCompare(String(map[b]), 'zh-CN');
+  }).map(function (id) {
+    return '<option value="' + esc(id) + '"' + (S.wrong.kp === id ? ' selected' : '') + '>' + esc(map[id]) + '</option>';
+  }).join('');
+}
+
+function wrongToolbarHTML() {
+  return '<div class="wrong-toolbar"><div class="wrong-filters">' +
+    '<select class="select" data-select="wrongSource"><option value="">全部来源测试</option>' + wrongSourceOptions() + '</select>' +
+    '<select class="select" data-select="wrongKp"><option value="">全部知识点</option>' + wrongKpOptions() + '</select>' +
+    '<input class="input wrong-search" type="search" data-input="wrongSearch" placeholder="搜索题干 / 知识点" value="' + esc(S.wrong.kw || '') + '">' +
+    '</div><div class="wrong-selectbar"><span id="wrongSelCount">已选 0 题</span>' +
+    '<button class="btn btn-sm" data-act="wrongSelectAll">全选当前筛选</button>' +
+    '<button class="btn btn-sm btn-ghost" data-act="wrongClear">清空</button>' +
+    '<button class="btn btn-primary btn-sm" id="wrongCreateBtn" data-act="wrongCreate">' + icon('plus') + '生成错题测试</button>' +
+    '</div></div>';
+}
+
+function wrongTestCardHTML(p) {
+  var att = DB.attempts.filter(function (a) { return a.paperId === p.id && a.studentId === user.id; })[0];
+  var submitted = att && att.status === 'submitted';
+  var inProgress = att && att.status === 'in_progress';
+  var total = paperTotal(p);
+  var action = submitted
+    ? '<button class="btn btn-sm btn-soft" data-act="go" data-to="s/result/' + att.id + '">' + icon('eye') + '查看结果</button>'
+    : '<button class="btn btn-sm btn-primary" data-act="startExam" data-id="' + p.id + '">' + icon('play') + (inProgress ? '继续作答' : '开始作答') + '</button>';
+  return '<div class="wrong-paper"><div class="wrong-paper-ico">' + icon('bookOpen') + '</div>' +
+    '<div class="grow"><div class="wrong-paper-title"><b>' + esc(p.name) + '</b>' +
+    (submitted ? tag('已完成 ' + att.score + ' / ' + att.total, 'green') : tag(inProgress ? '作答中' : '待完成', inProgress ? 'amber' : 'blue')) + '</div>' +
+    '<small>共 ' + p.items.length + ' 题 · 满分 ' + total + ' 分 · 限时 ' + p.duration + ' 分钟 · 生成于 ' + fmtDT(p.publishedAt) + '</small></div>' +
+    '<div class="wrong-paper-actions">' + action +
+    '<button class="btn btn-sm btn-ghost" data-act="deleteWrongTest" data-id="' + p.id + '">' + icon('trash') + '删除</button></div></div>';
+}
+
+function wrongPersonalTestsHTML() {
+  var tests = myWrongTests();
+  if (!tests.length) {
+    return '<div class="wrong-empty">' + icon('bookOpen') + '<div><b>还没有个人错题测试</b><p>从下方错题清单中勾选题目，即可生成一份只属于你的重练试卷。</p></div></div>';
+  }
+  return '<div class="wrong-paper-list">' + tests.map(wrongTestCardHTML).join('') + '</div>';
+}
+
+function refreshWrongSelectionUI() {
+  var selected = wrongSelectedEntries().map(function (e) { return e.qid; });
+  var map = {};
+  selected.forEach(function (qid) { map[qid] = true; });
+  $$('[data-wrongq]').forEach(function (cb) {
+    var on = !!map[cb.getAttribute('data-wrongq')];
+    cb.checked = on;
+    var item = cb.closest('.wrong-item');
+    if (item) item.classList.toggle('selected', on);
+  });
+  var label = $('#wrongSelCount');
+  if (label) label.textContent = '已选 ' + selected.length + ' 题';
+  var btn = $('#wrongCreateBtn');
+  if (btn) btn.disabled = selected.length === 0;
+}
+
+function refreshWrongList() {
+  var wrap = $('#wrongList');
+  if (wrap) wrap.innerHTML = wrongListHTML();
+  var count = $('#wrongListCount');
+  if (count) count.textContent = '当前显示 ' + wrongFilteredEntries().length + ' 道';
+  refreshWrongSelectionUI();
+}
+
+function viewSWrongBook() {
+  ensureWrongSelection();
+  var all = wrongBookEntries();
+  var tests = myWrongTests();
+  var stats = DB.wrongBook || { total: all.length, remaining: 0, corrected: 0, paperCount: 0, kpCount: 0 };
+  var html = pageHead('错题本', '汇总历次测评错题 · 生成只属于你的个人错题测试',
+    '<button class="btn" data-act="go" data-to="s/tests">' + icon('arrowLeft') + '返回我的测试</button>');
+
+  html += '<div class="stats">' +
+    statCard('错题总数', (stats.total || 0) + '<small>道</small>', 'bookOpen', '') +
+    statCard('待订正', (stats.remaining || 0) + '<small>道</small>', 'alert', 'amber') +
+    statCard('已订正', (stats.corrected || 0) + '<small>道</small>', 'check', 'green') +
+    statCard('错题测试', tests.length + '<small>份</small>', 'clipboard', 'purple') +
+    '</div>';
+
+  html += '<div class="alert info mb16">' + icon('info') + '<div>错题本只汇总当前学生自己的作答记录，教师和其他学生不可见。生成错题测试后，可在下方开始作答；提交后会自动判分并纳入学习诊断。</div></div>';
+
+  html += '<div class="card mb16"><div class="card-head"><h3>' + icon('bookOpen') + '我的错题测试</h3>' +
+    '<span class="sub">仅本人可见 · 可多次生成</span></div><div class="card-body">' + wrongPersonalTestsHTML() + '</div></div>';
+
+  if (!all.length) {
+    html += '<div class="card"><div class="card-body">' + emptyHTML('还没有错题记录', '完成一次教师发布的测评后，答错的题会自动收进错题本。', 'bookOpen') + '</div></div>';
+    return html;
+  }
+
+  html += '<div class="card"><div class="card-head"><h3>错题清单</h3><span class="sub" id="wrongListCount">当前显示 ' + wrongFilteredEntries().length + ' 道</span></div>' +
+    '<div class="card-body">' + wrongToolbarHTML() + '<div id="wrongList">' + wrongListHTML() + '</div></div></div>';
+  refreshWrongSelectionUI();
   return html;
 }
 

@@ -23,6 +23,7 @@ ROUTES = {
   't/reports': viewTReports,
   't/export': viewTExport,
   's/tests': viewSTests,
+  's/wrongbook': viewSWrongBook,
   's/exam': viewExam,
   's/result': viewSResult,
   's/report': viewSReport,
@@ -827,6 +828,82 @@ var ACTIONS = {
       toast(e.message, 'err');
     }
   },
+  wrongSelectAll: function () {
+    wrongFilteredEntries().forEach(function (e) { S.wrong.sel[e.qid] = true; });
+    refreshWrongSelectionUI();
+  },
+  wrongClear: function () {
+    S.wrong.sel = {};
+    refreshWrongSelectionUI();
+  },
+  wrongCreate: function () {
+    var picked = wrongSelectedEntries();
+    if (!picked.length) { toast('请至少选择 1 道错题', 'err'); return; }
+    var now = new Date();
+    var defaultName = '错题重练 · ' + pad2(now.getMonth() + 1) + '-' + pad2(now.getDate()) + ' ' +
+      pad2(now.getHours()) + ':' + pad2(now.getMinutes());
+    var defaultDuration = clamp(picked.length * 2, 10, 120);
+    showModal(modalHead('生成个人错题测试', '仅本人可见 · 从错题本中抽取题目') +
+      '<div class="modal-body"><div class="report-text">已选择 <b>' + picked.length + '</b> 道错题，每题 5 分，满分 <b>' +
+      (picked.length * 5) + '</b> 分。生成后可立即作答，提交后自动判分。</div>' +
+      '<div class="form-grid mt16">' +
+      '<div class="field full"><label>测试名称</label><input class="input" id="wrongTestName" value="' + esc(defaultName) + '"></div>' +
+      '<div class="field"><label>限时（分钟）</label><input class="input" id="wrongTestDuration" type="number" min="5" max="180" value="' + defaultDuration + '"></div>' +
+      '<div class="field"><label>题目数量</label><input class="input" value="' + picked.length + ' 题" readonly></div>' +
+      '</div><div class="alert info mt16">' + icon('info') + '<div>错题测试不会出现在教师端，也不会占用教师发布试卷的作答次数。</div></div></div>' +
+      '<div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
+      '<button class="btn btn-primary" data-act="confirmWrongCreate">生成并保存</button></div>', 'wide');
+  },
+  confirmWrongCreate: async function (el) {
+    var picked = wrongSelectedEntries();
+    if (!picked.length) { toast('请至少选择 1 道错题', 'err'); return; }
+    var name = (($('#wrongTestName') || {}).value || '').trim();
+    var duration = parseInt((($('#wrongTestDuration') || {}).value || ''), 10) || 0;
+    if (!name) { toast('请填写测试名称', 'err'); return; }
+    if (duration < 5 || duration > 180) { toast('限时需在 5~180 分钟之间', 'err'); return; }
+    var label = el.innerHTML;
+    el.disabled = true; el.textContent = '生成中…';
+    try {
+      var res = await API.createWrongTest({
+        qids: picked.map(function (e) { return e.qid; }),
+        name: name,
+        duration: duration
+      });
+      await reloadDB();
+      closeModal();
+      render();
+      toast(res && res.message ? res.message : '个人错题测试已生成');
+    } catch (e) {
+      el.disabled = false; el.innerHTML = label;
+      toast(e.message, 'err');
+    }
+  },
+  deleteWrongTest: function (el) {
+    var p = PAPER(el.dataset.id);
+    if (!p) { toast('错题测试不存在或已被删除', 'err'); return; }
+    showModal(modalHead('删除错题测试', '仅删除这份个人测试') +
+      '<div class="modal-body"><div class="alert danger">' + icon('alert') + '<div><b>此操作不可恢复。</b>该错题测试及对应作答记录将被删除，错题本中的原始错题不会受影响。</div></div>' +
+      '<div class="report-text mt16">测试：<b>' + esc(p.name) + '</b><br>题量：' + p.items.length + ' 题 · 满分 ' + paperTotal(p) + ' 分</div></div>' +
+      '<div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
+      '<button class="btn btn-danger" data-act="confirmDeleteWrongTest" data-id="' + esc(p.id) + '">确认删除</button></div>', 'wide');
+  },
+  confirmDeleteWrongTest: async function (el) {
+    var id = el.dataset.id;
+    if (!id) return;
+    var p = PAPER(id);
+    var name = p ? p.name : '该错题测试';
+    el.disabled = true; el.textContent = '删除中…';
+    try {
+      await API.deleteWrongTest(id);
+      await reloadDB();
+      closeModal();
+      render();
+      toast('已删除「' + name + '」');
+    } catch (e) {
+      el.disabled = false; el.textContent = '确认删除';
+      toast(e.message, 'err');
+    }
+  },
   logout: async function () {
     try { await API.logout(); } catch (e) {}
     try { localStorage.removeItem('xiangmu_user'); sessionStorage.removeItem('xiangmu_user'); } catch (e) {}
@@ -1292,6 +1369,18 @@ document.addEventListener('click', function (e) {
 
 document.addEventListener('change', function (e) {
   var el = e.target;
+  if (el.hasAttribute && el.hasAttribute('data-wrongq')) {
+    if (el.checked) S.wrong.sel[el.getAttribute('data-wrongq')] = true;
+    else delete S.wrong.sel[el.getAttribute('data-wrongq')];
+    refreshWrongSelectionUI();
+    return;
+  }
+  if (el.dataset.select === 'wrongSource') {
+    S.wrong.source = el.value; refreshWrongList(); return;
+  }
+  if (el.dataset.select === 'wrongKp') {
+    S.wrong.kp = el.value; refreshWrongList(); return;
+  }
   if (el.id === 'importFile') {
     var nameEl = document.getElementById('importFileName');
     if (nameEl) nameEl.textContent = el.files && el.files[0] ? '已选择：' + el.files[0].name : '尚未选择文件';
@@ -1332,6 +1421,9 @@ document.addEventListener('change', function (e) {
 
 document.addEventListener('input', function (e) {
   var el = e.target;
+  if (el.dataset.input === 'wrongSearch') {
+    S.wrong.kw = el.value; refreshWrongList(); return;
+  }
   if (el.dataset.input === 'qsearch') {
     S.q.kw = el.value; S.q.page = 1; refreshQTable(); return;
   }

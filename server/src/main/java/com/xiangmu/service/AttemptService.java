@@ -67,7 +67,7 @@ public class AttemptService {
         a.status = "in_progress";
         a.timeUsed = 0;
         attempts.save(a);
-        audit.log(p, "考试", "开始作答「" + paper.name + "」");
+        if (paper.ownerStudentId == null) audit.log(p, "考试", "开始作答「" + paper.name + "」");
         return attemptView(a, null);
     }
 
@@ -138,7 +138,9 @@ public class AttemptService {
         a.timeUsed = (int) Math.min(Integer.MAX_VALUE, Math.max(1, (seconds + 59) / 60));
         a.status = "submitted";
         attempts.save(a);
-        audit.log(p, "考试", "提交「" + paper.name + "」，得分 " + score + " / " + total);
+        if (paper.ownerStudentId == null) {
+            audit.log(p, "考试", "提交「" + paper.name + "」，得分 " + score + " / " + total);
+        }
     }
 
     private boolean isExpired(Attempt a, Paper paper, Instant now) {
@@ -183,6 +185,10 @@ public class AttemptService {
     }
 
     private void requireVisible(Paper paper, AppPrincipal p) {
+        if (paper.ownerStudentId != null && !paper.ownerStudentId.isBlank()) {
+            if (!p.id.equals(paper.ownerStudentId)) throw ApiException.forbidden("这份错题测试仅属于其他学生");
+            return;
+        }
         List<String> classIds = mapper.read(paper.classIdsJson, new TypeReference<List<String>>() {}, List.of());
         if (p.classId == null || !classIds.contains(p.classId)) throw ApiException.forbidden("本试卷不面向你的教学班");
     }

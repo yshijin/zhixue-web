@@ -82,6 +82,7 @@ public class ApiMapper {
         m.put("courseId", p.courseId);
         m.put("teacherId", p.teacherId);
         m.put("teacherName", p.teacherName);
+        m.put("ownerStudentId", p.ownerStudentId);
         m.put("classIds", read(p.classIdsJson, new TypeReference<List<String>>() {}, List.of()));
         m.put("className", p.className);
         m.put("items", read(p.itemsJson, new TypeReference<List<Map<String, Object>>>() {}, List.of()));

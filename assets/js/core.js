@@ -158,6 +158,7 @@ var NAV = {
   student: [
     { group: '测评', items: [
       { key: 's/tests', label: '我的测试', icon: 'clipboard' },
+      { key: 's/wrongbook', label: '错题本', icon: 'bookOpen' },
       { key: 's/history', label: '历史记录', icon: 'clock' }
     ] }
   ]
@@ -193,6 +194,16 @@ function attemptOf(paperId, sid) {
 function attemptsOf(sid) {
   return DB.attempts.filter(function (a) { return a.studentId === (sid || user.id) && a.status !== 'in_progress'; })
     .sort(function (a, b) { return new Date(b.submittedAt) - new Date(a.submittedAt); });
+}
+function wrongBookEntries() {
+  return DB && DB.wrongBook && DB.wrongBook.entries ? DB.wrongBook.entries : [];
+}
+function myWrongTests() {
+  return DB.papers.filter(function (p) { return !!p.ownerStudentId && p.ownerStudentId === user.id; })
+    .sort(function (a, b) { return new Date(b.publishedAt) - new Date(a.publishedAt); });
+}
+function wrongBookRemaining() {
+  return wrongBookEntries().filter(function (e) { return !e.corrected; }).length;
 }
 function myPapers() { return DB.papers.filter(function (p) { return p.teacherId === user.id; }); }
 function myOngoingTests() {
@@ -428,6 +439,7 @@ function renderMobileStudentChrome(activeKey) {
   var latest = attemptsOf()[0];
   var tabs = [
     { key: 's/tests', label: '我的测试', icon: 'clipboard', href: '#/s/tests', badge: pending },
+    { key: 's/wrongbook', label: '错题本', icon: 'bookOpen', href: '#/s/wrongbook', badge: wrongBookRemaining() },
     { key: 's/history', label: '历史记录', icon: 'clock', href: '#/s/history' },
     { key: 's/report', label: '学习报告', icon: 'spark', href: latest ? '#/s/report/' + latest.id : '#/s/history' }
   ];
@@ -448,6 +460,10 @@ function renderSidebar(activeKey) {
       if (it.key === 's/tests') {
         var c = myOngoingTests().length;
         if (c) badge = '<span class="nav-badge">' + c + '</span>';
+      }
+      if (it.key === 's/wrongbook') {
+        var wc = wrongBookRemaining();
+        if (wc) badge = '<span class="nav-badge">' + wc + '</span>';
       }
       html += '<a class="nav-item ' + (it.key === activeKey ? 'active' : '') + '" href="#/' + it.key + '">' +
         icon(it.icon) + '<span>' + it.label + '</span>' + badge + '</a>';
@@ -491,6 +507,7 @@ function render() {
   var shell = $('#shell');
   shell.classList.toggle('focus', r.key === 's/exam');
   $('#content').innerHTML = fn(r.param);
+  if (r.key === 's/wrongbook' && typeof refreshWrongSelectionUI === 'function') refreshWrongSelectionUI();
   if (mobile) {
     renderMobileStudentChrome(r.key);
     document.title = studentRouteLabel(r.key) + ' · 智学测评';
@@ -575,6 +592,7 @@ var S = {
   progressPaper: 'p1',
   reportPaper: 'p1',
   paperFilter: 'all',
+  wrong: { sel: {}, source: '', kp: '', kw: '', ready: false },
   wizard: null,
   exam: null,
   timer: null,

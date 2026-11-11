@@ -12,6 +12,7 @@ import java.util.Optional;
 
 public interface AttemptRepo extends JpaRepository<Attempt, String> {
     Optional<Attempt> findByPaperIdAndStudentId(String paperId, String studentId);
+    List<Attempt> findByPaperId(String paperId);
     List<Attempt> findByStudentIdOrderBySubmittedAtDesc(String studentId);
     List<Attempt> findByPaperIdAndStatus(String paperId, String status);
     long countByPaperIdAndStatus(String paperId, String status);

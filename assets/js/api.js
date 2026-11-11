@@ -77,6 +77,8 @@
     startAttempt: function (paperId) { return request('POST', 'api/attempts/start', { paperId: paperId }).then(withClock); },
     saveAttempt: function (id, answers) { return request('PUT', 'api/attempts/' + encodeURIComponent(id) + '/answers', { answers: answers || {} }).then(withClock); },
     submitAttempt: function (id, answers) { return request('POST', 'api/attempts/' + encodeURIComponent(id) + '/submit', { answers: answers || {} }).then(withClock); },
+    createWrongTest: function (payload) { return request('POST', 'api/wrongbook/tests', payload || {}).then(withClock); },
+    deleteWrongTest: function (id) { return request('DELETE', 'api/wrongbook/tests/' + encodeURIComponent(id)); },
     aiStatus: function () { return request('GET', 'api/ai/status'); },
     aiDiagnose: function (attemptId) { return request('POST', 'api/ai/diagnose', { attemptId: attemptId }); },
     aiProviders: function () { return request('GET', 'api/ai/providers'); },

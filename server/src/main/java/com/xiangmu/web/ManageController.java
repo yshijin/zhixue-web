@@ -306,6 +306,9 @@ public class ManageController {
     public Map<String, Object> endPaper(@AuthenticationPrincipal AppPrincipal p, @PathVariable String id) {
         requireStaff(p);
         Paper paper = papers.findById(id).orElseThrow(() -> ApiException.notFound("试卷不存在"));
+        if (paper.ownerStudentId != null && !paper.ownerStudentId.isBlank()) {
+            throw ApiException.forbidden("个人错题测试只能由学生本人管理");
+        }
         if ("teacher".equals(p.role) && !p.id.equals(paper.teacherId)) throw ApiException.forbidden("不能操作其他教师的试卷");
         paper.endAt = Instant.now();
         papers.save(paper);
@@ -359,7 +362,9 @@ public class ManageController {
         List<Paper> relatedPapers = new ArrayList<>();
         Set<String> paperIds = new HashSet<>();
         for (Paper paper : papers.findAll()) {
-            if (id.equals(paper.teacherId) || paperTargetsAnyClass(paper, classIds)) {
+            if (id.equals(paper.teacherId)
+                    || paperTargetsAnyClass(paper, classIds)
+                    || (paper.ownerStudentId != null && studentIds.contains(paper.ownerStudentId))) {
                 relatedPapers.add(paper);
                 paperIds.add(paper.id);
             }
@@ -422,8 +427,12 @@ public class ManageController {
             throw ApiException.forbidden("不能删除其他课程的学生");
         }
 
+        List<Paper> personalPapers = papers.findAll().stream()
+                .filter(x -> student.id.equals(x.ownerStudentId))
+                .toList();
         List<Attempt> relatedAttempts = attempts.findByStudentIdOrderBySubmittedAtDesc(student.id);
         attempts.deleteAllInBatch(relatedAttempts);
+        papers.deleteAllInBatch(personalPapers);
         users.deleteAllById(List.of(student.id));
         students.delete(student);
         if (group != null) {
@@ -643,7 +652,8 @@ public class ManageController {
         List<Paper> relatedPapers = new ArrayList<>();
         Set<String> paperIds = new HashSet<>();
         for (Paper paper : papers.findAll()) {
-            if (paperTargetsAnyClass(paper, Set.of(id))) {
+            if (paperTargetsAnyClass(paper, Set.of(id))
+                    || (paper.ownerStudentId != null && studentIds.contains(paper.ownerStudentId))) {
                 relatedPapers.add(paper);
                 if (paper.id != null) paperIds.add(paper.id);
             }
@@ -679,6 +689,9 @@ public class ManageController {
     public Map<String, Object> deletePaper(@AuthenticationPrincipal AppPrincipal p, @PathVariable String id) {
         requireStaff(p);
         Paper paper = papers.findById(id).orElseThrow(() -> ApiException.notFound("试卷不存在"));
+        if (paper.ownerStudentId != null && !paper.ownerStudentId.isBlank()) {
+            throw ApiException.forbidden("个人错题测试只能由学生本人删除");
+        }
         if ("teacher".equals(p.role) && !p.id.equals(paper.teacherId)) {
             throw ApiException.forbidden("不能删除其他教师的试卷");
         }
