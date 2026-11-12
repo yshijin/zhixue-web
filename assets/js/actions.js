@@ -161,14 +161,39 @@ function openAddTeacher() {
     '<div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
     '<button class="btn btn-primary" data-act="saveTeacher">保存</button></div>');
 }
+function openAddTeacherClasses(teacherId) {
+  if (!DB.teachers.length) { toast('请先新增教师账号', 'err'); return; }
+  var fixed = teacherId ? DB.teachers.filter(function (t) { return t.id === teacherId; })[0] : null;
+  if (teacherId && !fixed) { toast('教师不存在或已被删除', 'err'); return; }
+  var existing = fixed ? DB.classes.filter(function (c) { return c.teacherId === fixed.id; }) : [];
+  var defaultTerm = (DB.courses[0] && DB.courses[0].term) || '2026-2027 学年第一学期';
+  var teacherField = fixed
+    ? '<div class="field full"><label>任课教师</label><input class="input" value="' + esc(fixed.name) + '（' + esc(fixed.no) + '）" readonly></div>'
+    : '<div class="field full"><label>任课教师<i>*</i></label><select class="select" id="ftcTeacher">' +
+      DB.teachers.map(function (t) {
+        return '<option value="' + esc(t.id) + '">' + esc(t.name) + '（' + esc(t.no) + '）</option>';
+      }).join('') + '</select></div>';
+  showModal(modalHead(fixed ? '为「' + esc(fixed.name) + '」添加教学班' : '新增教学班', '可一次添加多个教学班') +
+    '<div class="modal-body"><div class="form-grid">' + teacherField +
+    '<div class="field full"><label>教学班名称<i>*</i></label><textarea class="textarea" id="ftcNames" rows="3" placeholder="如：软件24204&#10;多个班级可用换行、逗号或顿号分隔"></textarea>' +
+    (existing.length ? '<div class="form-note mt8">当前已绑定：' + existing.map(function (c) { return esc(c.name); }).join('、') + '</div>' : '') +
+    '</div>' +
+    '<div class="field"><label>专业</label><input class="input" id="ftcMajor" value="软件工程"></div>' +
+    '<div class="field"><label>学期</label><input class="input" id="ftcTerm" value="' + esc(defaultTerm) + '"></div>' +
+    '</div><div class="form-note mt12">提交时会一次性校验全部名称；如其中有重名教学班，则本次不会添加任何班级。</div></div>' +
+    '<div class="modal-foot"><button class="btn" data-act="closeModal">取消</button>' +
+    '<button class="btn btn-primary" data-act="saveTeacherClasses" data-id="' + (fixed ? esc(fixed.id) : '') + '">保存</button></div>');
+}
 function openAddStudent() {
-  if (!DB.classes.length) {
+  var classList = user.role === 'teacher' ? teacherOwnClasses() : DB.classes;
+  if (!classList.length) {
     toast(user.role === 'teacher' ? '当前账号尚未绑定教学班，请联系课程负责人' : '请先创建教学班', 'err');
     return;
   }
-  var first = DB.classes[0];
-  var options = DB.classes.map(function (c) {
-    return '<option value="' + c.id + '">' + esc(c.name) + '（' + c.count + ' 人）</option>';
+  var currentClassId = user.role === 'teacher' ? teacherCurrentClassId() : '';
+  var first = classList.filter(function (c) { return c.id === currentClassId; })[0] || classList[0];
+  var options = classList.map(function (c) {
+    return '<option value="' + c.id + '" ' + (c.id === first.id ? 'selected' : '') + '>' + esc(c.name) + '（' + c.count + ' 人）</option>';
   }).join('');
   showModal(modalHead('添加学生', user.role === 'teacher' ? '仅可添加到本人教学班' : '课程负责人可添加到任意教学班') +
     '<div class="modal-body"><div class="form-grid">' +
@@ -421,11 +446,14 @@ function handleExport(kind, id) {
   var date = new Date().toISOString().slice(0, 10);
   if (kind === 'students') {
     name = '学生测试明细';
-    var paper = (id && PAPER(id)) || PAPER(S.statPaper) || myPapers()[0] || DB.papers[0];
+    var allowedPapers = user.role === 'teacher' ? myPapers() : DB.papers;
+    var requested = id ? PAPER(id) : PAPER(S.statPaper);
+    var paper = requested && allowedPapers.some(function (x) { return x.id === requested.id; }) ? requested : allowedPapers[0];
     if (!paper) { toast('暂无可导出的试卷数据', 'err'); return; }
-    var perf = perfFor(paper);
-    var classLabel = DB.classes.filter(function (c) { return paper.classIds.indexOf(c.id) > -1; })
+    var perf = user.role === 'teacher' ? teacherPerf(paper) : perfFor(paper);
+    var paperClassLabel = DB.classes.filter(function (c) { return paper.classIds.indexOf(c.id) > -1; })
       .map(function (c) { return c.name; }).join('、') || '—';
+    var classLabel = user.role === 'teacher' && teacherScopeIds() !== null ? teacherScopeLabel() : paperClassLabel;
     rows.push(['学号', '姓名', '教学班', '测评', '得分', '满分', '提交时间']);
     perf.rows.forEach(function (r) {
       if (r.score == null) return;
@@ -434,17 +462,25 @@ function handleExport(kind, id) {
   } else if (kind === 'kps') {
     name = '知识点统计';
     rows.push(['知识点编号', '知识点名称', '平均得分率', '参与人数', '题量']);
-    DB.kpAvg.forEach(function (k) { rows.push([k.code, k.name, k.avg + '%', 38, k.count]); });
+    if (user.role === 'teacher') {
+      teacherKpStats().forEach(function (k) {
+        rows.push([KPBY(k.id).code, k.name, k.rate + '%', teacherScopedStudents().length, k.count]);
+      });
+    } else {
+      DB.kpAvg.forEach(function (k) { rows.push([k.code, k.name, k.avg + '%', 38, k.count]); });
+    }
   } else if (kind === 'classSummary') {
     name = '教学班汇总';
     rows.push(['教学班', '任课教师', '应测人数', '完成人数', '完成率', '平均分', '最高分', '最低分']);
-    DB.classSummaries.forEach(function (c) {
+    var summaries = user.role === 'teacher' ? teacherScopedClassSummaries() : DB.classSummaries;
+    summaries.forEach(function (c) {
       rows.push([c.className, c.teacher, c.expected, c.completed, pct(c.completed, c.expected) + '%', c.avg, c.max, c.min]);
     });
   } else if (kind === 'papers') {
     name = '试卷清单';
     rows.push(['试卷名称', '教师', '教学班', '题量', '满分', '状态', '开放时间']);
-    DB.papers.forEach(function (p) {
+    var exportPapers = user.role === 'teacher' ? myPapers() : DB.papers;
+    exportPapers.forEach(function (p) {
       rows.push([p.name, p.teacherName, p.className, p.items.length, paperTotal(p), paperStatus(p).label, fmtFull(p.startAt)]);
     });
   } else if (kind === 'questions') {
@@ -941,6 +977,7 @@ var ACTIONS = {
   openAddKp: openAddKp,
   openAddQuestion: openAddQuestion,
   openAddTeacher: openAddTeacher,
+  openAddTeacherClasses: function (el) { openAddTeacherClasses(el && el.dataset ? el.dataset.id : ''); },
   openAddStudent: openAddStudent,
   openAddCourse: openAddCourse,
   openImport: function (el) { openImport(el.dataset.kind); },
@@ -1028,6 +1065,29 @@ var ACTIONS = {
       await reloadDB();
       closeModal(); render(); toast('教师已新增（初始密码 123456）');
     } catch (e) { toast(e.message, 'err'); }
+  },
+  saveTeacherClasses: async function (el) {
+    var teacherId = (el && el.dataset && el.dataset.id) || ($('#ftcTeacher') ? $('#ftcTeacher').value : '');
+    var names = ($('#ftcNames') ? $('#ftcNames').value : '').trim();
+    if (!teacherId) { toast('请选择任课教师', 'err'); return; }
+    if (!names) { toast('请填写至少一个教学班名称', 'err'); return; }
+    var teacher = DB.teachers.filter(function (t) { return t.id === teacherId; })[0];
+    var label = el.innerHTML;
+    el.disabled = true; el.textContent = '保存中…';
+    try {
+      var res = await API.addTeacherClasses(teacherId, {
+        names: names,
+        major: ($('#ftcMajor') ? $('#ftcMajor').value : '').trim(),
+        term: ($('#ftcTerm') ? $('#ftcTerm').value : '').trim()
+      });
+      await reloadDB();
+      closeModal();
+      render();
+      toast('已为「' + (teacher ? teacher.name : '教师') + '」添加 ' + ((res && res.count) || 1) + ' 个教学班');
+    } catch (e) {
+      el.disabled = false; el.innerHTML = label;
+      toast(e.message, 'err');
+    }
   },
   saveStudent: async function () {
     var no = ($('#fsNo').value || '').trim();
@@ -1177,7 +1237,7 @@ var ACTIONS = {
   },
   viewPaper: function (el) { openPaper(el.dataset.id); },
   exportPaper: function (el) { exportPaper(el.dataset.id); },
-  export: function (el) { handleExport(el.dataset.kind, el.dataset.id); },
+  export: function (el) { handleExport(el.dataset.kind, el.dataset.paper || el.dataset.id); },
   printReport: function () { window.print(); },
   remind: function () {
     toast('已向未提交学生发送提醒（演示）');
@@ -1403,6 +1463,9 @@ document.addEventListener('change', function (e) {
   }
   if (el.dataset.select === 'paperFilter') {
     S.paperFilter = el.value; render(); return;
+  }
+  if (el.dataset.select === 'teacherClass') {
+    setTeacherClass(el.value); render(); return;
   }
   if (el.dataset.select === 'statPaper') {
     S.statPaper = el.value; render(); return;

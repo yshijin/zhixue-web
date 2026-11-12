@@ -59,6 +59,7 @@
     addKp: function (kp) { return request('POST', 'api/kps', kp); },
     addQuestion: function (q) { return request('POST', 'api/questions', q); },
     addTeacher: function (t) { return request('POST', 'api/teachers', t); },
+    addTeacherClasses: function (id, c) { return request('POST', 'api/teachers/' + encodeURIComponent(id) + '/classes', c); },
     addClass: function (c) { return request('POST', 'api/classes', c); },
     addStudent: function (s) { return request('POST', 'api/students', s); },
     addCourse: function (c) { return request('POST', 'api/courses', c); },

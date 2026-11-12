@@ -171,6 +171,10 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .topbar .crumb b { color: var(--text); font-weight: 600; font-size: 14px; }
 .topbar .crumb .sep { color: #c9cfdb; }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.top-class { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.top-class > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.top-class .ico { width: 14px; height: 14px; color: var(--primary); }
+.top-class .select { height: 32px; min-width: 168px; max-width: 230px; padding: 0 30px 0 10px; font-size: 12.5px; background: #fff; }
 .topbar .today { font-size: 12px; color: var(--muted); }
 .role-chip {
   display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 9px;
@@ -264,6 +268,7 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .tag.purple { background: var(--purple-soft); color: #5b3fd6; }
 .tag.gray { background: #f3f4f7; color: #778094; }
 .tag.dot::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.class-tags { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; max-width: 340px; }
 
 .table-wrap { overflow-x: auto; }
 table.tb { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 780px; }
@@ -714,6 +719,8 @@ table.tb .actions { display: flex; gap: 4px; white-space: nowrap; }
   .content { padding: 18px 16px 40px; }
   .topbar { padding: 0 16px; }
   .topbar .today { display: none; }
+  .top-class > span { display: none; }
+  .top-class .select { min-width: 142px; max-width: 180px; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .course-cards { grid-template-columns: 1fr; }
@@ -748,6 +755,10 @@ table.tb .actions { display: flex; gap: 4px; white-space: nowrap; }
 @media (max-width: 760px) {
   .result-hero { flex-direction: column; align-items: flex-start; }
   .result-hero .rh-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topbar { gap: 8px; padding: 0 12px; }
+  .topbar-right { gap: 8px; }
+  .top-class .select { min-width: 104px; max-width: 128px; padding-left: 8px; }
+  .topbar .role-chip { display: none; }
 }
 @media print {
   .sidebar, .topbar, .page-actions, .report-head .rh-level, .no-print, .exam-top .btn, #toast { display: none !important; }

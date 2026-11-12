@@ -205,7 +205,127 @@ function myWrongTests() {
 function wrongBookRemaining() {
   return wrongBookEntries().filter(function (e) { return !e.corrected; }).length;
 }
-function myPapers() { return DB.papers.filter(function (p) { return p.teacherId === user.id; }); }
+/* ---------------- 教师多教学班 ---------------- */
+function teacherOwnClasses() {
+  if (!DB || !user || user.role !== 'teacher') return [];
+  return (DB.classes || []).filter(function (c) { return c.teacherId === user.id; });
+}
+function teacherClassPrefKey() {
+  return 'zhixue_teacher_class_' + (user ? user.id : '');
+}
+function readTeacherClassPref() {
+  try { return localStorage.getItem(teacherClassPrefKey()) || ''; } catch (e) { return ''; }
+}
+function teacherCurrentClassId() {
+  var own = teacherOwnClasses();
+  if (!own.length) { S.teacherClassId = ''; return ''; }
+  var id = S.teacherClassId || readTeacherClassPref();
+  if (id === 'all' && own.length < 2) id = own[0].id;
+  if (id !== 'all' && !own.some(function (c) { return c.id === id; })) id = own[0].id;
+  S.teacherClassId = id;
+  return id;
+}
+/* null 表示“全部班级”，数组表示当前单个教学班范围。 */
+function teacherScopeIds() {
+  var id = teacherCurrentClassId();
+  if (!id) return [];
+  return id === 'all' ? null : [id];
+}
+function teacherCurrentClasses() {
+  var own = teacherOwnClasses();
+  var id = teacherCurrentClassId();
+  return id === 'all' ? own : own.filter(function (c) { return c.id === id; });
+}
+function teacherScopeLabel() {
+  var own = teacherOwnClasses();
+  var id = teacherCurrentClassId();
+  if (!id) return '未绑定教学班';
+  if (id === 'all') return '全部班级（' + own.length + ' 个）';
+  var cls = own.filter(function (c) { return c.id === id; })[0];
+  return cls ? cls.name : '全部班级';
+}
+function teacherScopeClassNames() {
+  return teacherCurrentClasses().map(function (c) { return c.name; }).join('、') || '—';
+}
+function teacherScopedStudents() {
+  var scope = teacherScopeIds();
+  if (scope === null) return DB.students;
+  return DB.students.filter(function (s) { return scope.indexOf(s.classId) > -1; });
+}
+function teacherScopedClassSummaries() {
+  var scope = teacherScopeIds();
+  if (scope === null) return DB.classSummaries || [];
+  return (DB.classSummaries || []).filter(function (c) { return scope.indexOf(c.classId) > -1; });
+}
+function teacherAggregateClassSummary() {
+  var list = teacherScopedClassSummaries();
+  if (!list.length) return null;
+  if (list.length === 1) return list[0];
+  var expected = list.reduce(function (a, c) { return a + (c.expected || 0); }, 0);
+  var completed = list.reduce(function (a, c) { return a + (c.completed || 0); }, 0);
+  var weighted = list.reduce(function (a, c) { return a + (c.avg || 0) * (c.expected || 0); }, 0);
+  var avg = expected ? Math.round(weighted / expected * 10) / 10 : 0;
+  return {
+    classId: '', className: '全部班级', teacher: user.name,
+    expected: expected, completed: completed, avg: avg,
+    max: Math.max.apply(null, list.map(function (c) { return c.max || 0; })),
+    min: Math.min.apply(null, list.map(function (c) { return c.min || 0; }))
+  };
+}
+function teacherPerf(p) { return perfFor(p, teacherScopeIds()); }
+function teacherKpStats() {
+  var students = teacherScopedStudents();
+  var studentMap = {};
+  students.forEach(function (s) { studentMap[s.id] = true; });
+  var map = {}, order = [];
+  DB.attempts.forEach(function (a) {
+    if (a.status === 'in_progress' || !studentMap[a.studentId]) return;
+    var p = PAPER(a.paperId);
+    if (!p) return;
+    (p.items || []).forEach(function (it) {
+      var q = QBY(it.qid);
+      if (!q) return;
+      if (!map[q.kpId]) {
+        map[q.kpId] = { id: q.kpId, name: KPBY(q.kpId).name, got: 0, total: 0, count: 0, right: 0 };
+        order.push(q.kpId);
+      }
+      var r = map[q.kpId];
+      r.total += it.score;
+      r.count += 1;
+      if (attemptIsCorrect(a, q.id)) { r.got += it.score; r.right += 1; }
+    });
+  });
+  return order.map(function (id) {
+    var r = map[id];
+    r.rate = pct(r.got, r.total);
+    return r;
+  });
+}
+function setTeacherClass(id) {
+  var own = teacherOwnClasses();
+  if (!own.length) id = '';
+  else if (id === 'all' && own.length < 2) id = own[0].id;
+  else if (id !== 'all' && !own.some(function (c) { return c.id === id; })) id = own[0].id;
+  S.teacherClassId = id;
+  try {
+    if (id) localStorage.setItem(teacherClassPrefKey(), id);
+    else localStorage.removeItem(teacherClassPrefKey());
+  } catch (e) {}
+  S.wizard = null;
+  S.stu.page = 1;
+}
+function myPapers() {
+  var list = DB.papers.filter(function (p) { return p.teacherId === user.id; });
+  if (user && user.role === 'teacher') {
+    var scope = teacherScopeIds();
+    if (scope !== null) {
+      list = list.filter(function (p) {
+        return (p.classIds || []).some(function (cid) { return scope.indexOf(cid) > -1; });
+      });
+    }
+  }
+  return list;
+}
 function myOngoingTests() {
   return DB.papers.filter(function (p) {
     return p.classIds.indexOf(user.classId || 'c1') > -1 && paperStatus(p).key === 'ongoing' && !attemptOf(p.id);
@@ -351,10 +471,11 @@ function pseudoAttempt(student, paperId, target) {
     timeUsed: Math.round(p.duration * 0.65), pseudo: true
   };
 }
-function perfFor(p) {
-  var classIds = p.classIds || [];
+function perfFor(p, scopeClassIds) {
+  var scoped = Array.isArray(scopeClassIds);
+  var classIds = scoped ? scopeClassIds : (p.classIds || []);
   var classStudents = DB.students.filter(function (s) { return classIds.indexOf(s.classId) > -1; });
-  if (!classIds.length) classStudents = DB.students;
+  if (!scoped && !classIds.length) classStudents = DB.students;
   var targetClasses = DB.classes.filter(function (c) { return classIds.indexOf(c.id) > -1; });
   var expected = targetClasses.reduce(function (a, c) { return a + (c.count || 0); }, 0);
   if (!expected) expected = classStudents.length;
@@ -474,6 +595,19 @@ function renderSidebar(activeKey) {
     '<button class="logout-btn" data-act="logout" title="退出登录">' + icon('logout') + '</button></div>';
   $('#sidebar').innerHTML = html;
 }
+function teacherClassSwitcherHTML() {
+  if (!user || user.role !== 'teacher') return '';
+  var own = teacherOwnClasses();
+  if (!own.length) return '';
+  var current = teacherCurrentClassId();
+  var options = own.length > 1
+    ? '<option value="all" ' + (current === 'all' ? 'selected' : '') + '>全部班级</option>' : '';
+  options += own.map(function (c) {
+    return '<option value="' + esc(c.id) + '" ' + (current === c.id ? 'selected' : '') + '>' + esc(c.name) + '（' + c.count + ' 人）</option>';
+  }).join('');
+  return '<label class="top-class"><span>' + icon('school') + '教学班</span>' +
+    '<select class="select" data-select="teacherClass" aria-label="切换教学班">' + options + '</select></label>';
+}
 function renderTopbar(activeKey) {
   var label = '工作台';
   (NAV[user.role] || []).forEach(function (g) {
@@ -486,7 +620,8 @@ function renderTopbar(activeKey) {
   $('#topbar').innerHTML =
     '<button class="menu-btn" data-act="toggleSidebar">' + icon('menu') + '</button>' +
     '<div class="crumb"><span>' + (groupName || '工作台') + '</span><span class="sep">/</span><b>' + label + '</b></div>' +
-    '<div class="topbar-right"><span class="today">' + todayLabel() + '</span>' +
+    '<div class="topbar-right">' + teacherClassSwitcherHTML() +
+    '<span class="today">' + todayLabel() + '</span>' +
     '<span class="role-chip ' + ROLE_CHIP[user.role] + '">' + ROLE_LABEL[user.role] + '</span>' +
     '<div class="top-avatar"><div class="avatar">' + esc(user.name.slice(-2)) + '</div><b>' + esc(user.name) + '</b></div></div>';
 }
@@ -592,6 +727,7 @@ var S = {
   progressPaper: 'p1',
   reportPaper: 'p1',
   paperFilter: 'all',
+  teacherClassId: '',
   wrong: { sel: {}, source: '', kp: '', kw: '', ready: false },
   wizard: null,
   exam: null,

@@ -222,19 +222,25 @@ function viewCLQuestions() {
 
 /* ---------------- 教师管理 ---------------- */
 function viewCLTeachers() {
-  var html = pageHead('教师管理', '课程负责人统一创建教师账号并绑定教学班',
+  var html = pageHead('教师管理', '统一创建教师账号，并为现有教师绑定多个教学班',
     '<button class="btn" data-act="openImport" data-kind="teacher">' + icon('upload') + '批量导入</button>' +
     '<button class="btn btn-primary" data-act="openAddTeacher">' + icon('plus') + '新增教师</button>');
 
   html += '<div class="alert info mb16">' + icon('info') +
-    '<div>教师账号由课程负责人统一创建或批量导入，仅管理本课程范围内的教师绑定关系；如学校已有统一身份系统，可通过账号映射接入。</div></div>';
+    '<div>教师账号由课程负责人统一创建或批量导入。一个教师可负责多个教学班，教师登录后可在顶部切换当前教学班；下方“教学班”列会展示全部绑定关系。</div></div>';
 
-  html += '<div class="card"><div class="card-head"><h3>教师列表</h3><span class="sub">共 ' + DB.teachers.length + ' 人</span></div><div class="table-wrap">' +
+  html += '<div class="card"><div class="card-head"><h3>教师列表</h3><span class="sub">共 ' + DB.teachers.length + ' 人 · ' + DB.classes.length + ' 个教学班</span></div><div class="table-wrap">' +
     '<table class="tb"><thead><tr><th>工号</th><th>姓名</th><th>教学班</th><th>手机号</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
     DB.teachers.map(function (t) {
-      return '<tr><td class="muted num">' + t.no + '</td><td class="cell-main">' + esc(t.name) + '</td><td>' + esc(t.classes) + '</td>' +
+      var tClasses = DB.classes.filter(function (c) { return c.teacherId === t.id; });
+      var classHtml = tClasses.length
+        ? '<div class="class-tags">' + tClasses.map(function (c) { return '<span class="tag blue">' + esc(c.name) + '</span>'; }).join('') + '</div>' +
+          '<div class="cell-sub">共 ' + tClasses.length + ' 个教学班</div>'
+        : (t.classes ? '<span class="muted">' + esc(t.classes) + '</span>' : '<span class="muted">未绑定</span>');
+      return '<tr><td class="muted num">' + t.no + '</td><td class="cell-main">' + esc(t.name) + '</td><td>' + classHtml + '</td>' +
         '<td class="muted">' + t.phone + '</td><td>' + tag('启用', 'green') + '</td>' +
-        '<td><div class="actions"><button class="btn btn-sm btn-ghost" data-act="resetPwd" data-name="' + esc(t.name) + '" data-id="' + esc(t.id) + '">重置密码</button>' +
+        '<td><div class="actions"><button class="btn btn-sm btn-soft" data-act="openAddTeacherClasses" data-id="' + esc(t.id) + '">' + icon('plus') + '添加班级</button>' +
+        '<button class="btn btn-sm btn-ghost" data-act="resetPwd" data-name="' + esc(t.name) + '" data-id="' + esc(t.id) + '">重置密码</button>' +
         '<button class="btn btn-sm btn-danger" data-act="deleteTeacher" data-name="' + esc(t.name) + '" data-id="' + esc(t.id) + '">' + icon('trash') + '删除</button></div></td></tr>';
     }).join('') + '</tbody></table></div></div>';
 
@@ -243,13 +249,15 @@ function viewCLTeachers() {
 
 /* ---------------- 教学班 ---------------- */
 function viewCLClasses() {
-  var html = pageHead('教学班总览', '查看课程下各教学班的规模与测评表现',
+  var html = pageHead('教学班总览', '查看教师与多个教学班的对应关系及测评表现',
+    '<button class="btn btn-primary" data-act="openAddTeacherClasses">' + icon('plus') + '新增教学班</button>' +
     '<button class="btn" data-act="go" data-to="cl/stats">' + icon('chart') + '课程统计</button>');
 
   html += '<div class="grid-3">' + DB.classes.map(function (c) {
     var sum = DB.classSummaries.filter(function (s) { return s.classId === c.id; })[0] || { expected: c.count, completed: c.count, avg: 76 };
+    var teacherClasses = DB.classes.filter(function (x) { return x.teacherId === c.teacherId; });
     return '<div class="class-card"><div class="row"><h3>' + esc(c.name) + '</h3><span class="right tag blue">' + esc(c.term) + '</span></div>' +
-      '<div class="cc-teacher">' + esc(c.teacherName) + '</div>' +
+      '<div class="cc-teacher">' + esc(c.teacherName) + (teacherClasses.length > 1 ? ' · 负责 ' + teacherClasses.length + ' 个教学班' : '') + '</div>' +
       '<div class="kpis"><div><b>' + c.count + '</b><span>学生</span></div><div><b>' + sum.completed + '</b><span>已提交</span></div>' +
       '<div><b>' + sum.avg + '</b><span>平均分</span></div></div>' +
       '<div class="mt12 progress-row"><span class="small muted">完成率</span><div class="progress"><i style="width:' + pct(sum.completed, sum.expected) + '%"></i></div><b>' + pct(sum.completed, sum.expected) + '%</b></div>' +
@@ -261,7 +269,10 @@ function viewCLClasses() {
     '<table class="tb"><thead><tr><th>教学班</th><th>任课教师</th><th>专业</th><th>学生人数</th><th>课程</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
     DB.classes.map(function (c) {
       var course = DB.courses.filter(function (x) { return x.id === c.courseId; })[0];
-      return '<tr><td class="cell-main">' + esc(c.name) + '</td><td>' + esc(c.teacherName) + '</td><td class="muted">' + esc(c.major) + '</td>' +
+      var teacherClasses = DB.classes.filter(function (x) { return x.teacherId === c.teacherId; });
+      return '<tr><td class="cell-main">' + esc(c.name) + '</td><td>' + esc(c.teacherName) +
+        (teacherClasses.length > 1 ? '<div class="cell-sub">负责 ' + teacherClasses.length + ' 个教学班</div>' : '') +
+        '</td><td class="muted">' + esc(c.major) + '</td>' +
         '<td class="num">' + c.count + '</td><td class="muted">' + esc(course ? course.name : '—') + '</td><td>' + tag('进行中', 'green') + '</td>' +
         '<td><button class="btn btn-sm btn-danger" data-act="deleteEntity" data-kind="class" data-id="' + esc(c.id) + '">' + icon('trash') + '删除</button></td></tr>';
     }).join('') + '</tbody></table></div></div>';

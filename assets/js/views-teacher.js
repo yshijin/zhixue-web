@@ -11,14 +11,15 @@ function latestAttemptForStudent(sid) {
 }
 
 function viewTDashboard() {
-  var cls = DB.classSummaries[0];
-  if (!cls) {
+  var ownClasses = teacherOwnClasses();
+  var cls = teacherAggregateClassSummary();
+  if (!ownClasses.length || !cls) {
     return pageHead('工作台', '教师工作台') +
       '<div class="card"><div class="card-body">' +
       emptyHTML('尚未绑定教学班', '教师账号已创建，但还没有关联教学班。请联系课程负责人在“教师管理”或“教学班总览”中绑定后再使用。', 'school') +
       '</div></div>';
   }
-  var className = cls.className || ((DB.classes[0] || {}).name) || '我的教学班';
+  var className = teacherScopeLabel();
   var courseName = (DB.courses[0] && DB.courses[0].name) || '课程';
   var my = myPapers();
   var ongoing = my.filter(function (p) { return paperStatus(p).key === 'ongoing'; });
@@ -26,7 +27,7 @@ function viewTDashboard() {
     return new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0);
   }).slice(0, 4);
   var focus = ongoing[0] || my[0] || null;
-  var perf = focus ? perfFor(focus) : null;
+  var perf = focus ? teacherPerf(focus) : null;
   var expected = perf ? perf.expected : cls.expected;
   var completed = perf ? perf.completed : cls.completed;
   var avg = perf ? perf.avg : cls.avg;
@@ -34,7 +35,7 @@ function viewTDashboard() {
   var min = perf ? perf.min : cls.min;
   var pending = Math.max(0, expected - completed);
   var hasData = completed > 0;
-  var weak = hasData ? DB.kpAvg.slice().sort(function (a, b) { return a.avg - b.avg; }).slice(0, 5) : [];
+  var weak = hasData ? teacherKpStats().sort(function (a, b) { return a.rate - b.rate; }).slice(0, 5) : [];
 
   var html = pageHead('工作台', className + ' · ' + courseName,
     '<button class="btn" data-act="openImport" data-kind="student">' + icon('upload') + '导入学生</button>' +
@@ -53,7 +54,7 @@ function viewTDashboard() {
     '<button class="btn" data-act="newWizard">' + icon('plus') + '新建测评</button></div></div>';
 
   html += '<div class="stats">' +
-    statCard('我的教学班', DB.classes.length + '<small>个</small>', 'school', '') +
+    statCard('我的教学班', ownClasses.length + '<small>个</small>', 'school', '', teacherScopeLabel()) +
     statCard('班级学生', expected + '<small>人</small>', 'users', 'purple') +
     statCard('进行中测评', ongoing.length + '<small>场</small>', 'clock', 'green') +
     statCard('本次平均分', hasData ? avg : '—', 'target', 'amber', hasData ? ('满分 100 · ' + completed + ' 人提交') : '暂无作答数据') +
@@ -96,7 +97,7 @@ function viewTDashboard() {
       '<div><div class="small muted">最低分</div><b style="font-size:19px">' + min + '</b></div></div></div></div>' :
       '<div class="card-body">' + emptyHTML('暂无学生', '导入学生后，这里会显示完成率与成绩统计。', 'users') + '</div>') + '</div>' +
     '<div class="card"><div class="card-head"><h3>班级薄弱知识点</h3></div><div class="card-body">' +
-    (hasData && weak.length ? barsHTML(weak.map(function (k) { return { name: k.name, rate: k.avg }; })) : emptyHTML('暂无知识点数据', '完成一次测评后，这里会按得分率展示薄弱知识点。', 'chart')) + '</div></div></div>';
+    (hasData && weak.length ? barsHTML(weak) : emptyHTML('暂无知识点数据', '完成一次测评后，这里会按得分率展示薄弱知识点。', 'chart')) + '</div></div></div>';
 
   return html;
 }
@@ -104,18 +105,20 @@ function viewTDashboard() {
 /* ---------------- 学生管理 ---------------- */
 function filteredStudents() {
   var kw = S.stu.kw.toLowerCase();
-  return DB.students.filter(function (s) {
+  var base = user.role === 'teacher' ? teacherScopedStudents() : DB.students;
+  return base.filter(function (s) {
     if (!kw) return true;
     return (s.name + s.no + s.major).toLowerCase().indexOf(kw) > -1;
   });
 }
 function studentTableHTML() {
   var list = filteredStudents();
+  var total = user.role === 'teacher' ? teacherScopedStudents().length : DB.students.length;
   var pageSize = 10;
   var pages = Math.max(1, Math.ceil(list.length / pageSize));
   var page = clamp(S.stu.page, 1, pages);
   var slice = list.slice((page - 1) * pageSize, page * pageSize);
-  if (!list.length) return emptyHTML('没有找到学生', DB.students.length ? '调整搜索条件后再试。' : '点击右上角“添加学生”或“批量导入”开始。', DB.students.length ? 'search' : 'users');
+  if (!list.length) return emptyHTML('没有找到学生', total ? '调整搜索条件后再试。' : '点击右上角“添加学生”或“批量导入”开始。', total ? 'search' : 'users');
   var html = '<div class="table-wrap"><table class="tb"><thead><tr><th>学号</th><th>姓名</th><th>专业</th><th>最近测评</th><th>状态</th><th>操作</th></tr></thead><tbody>';
   html += slice.map(function (s) {
     var att = latestAttemptForStudent(s.id);
@@ -134,24 +137,26 @@ function studentTableHTML() {
   return html;
 }
 function viewTStudents() {
-  var className = DB.classes.map(function (c) { return c.name; }).join('、');
-  if (!DB.classes.length) {
+  var ownClasses = teacherOwnClasses();
+  var className = teacherScopeLabel();
+  if (!ownClasses.length) {
     return pageHead('学生管理', '仅可维护本人教学班学生') +
       '<div class="card"><div class="card-body">' +
       emptyHTML('尚未绑定教学班', '教师账号已创建，但还没有关联教学班。请联系课程负责人绑定后再导入学生。', 'school') +
       '</div></div>';
   }
-  var done = DB.students.filter(function (s) { return latestAttemptForStudent(s.id) != null; }).length;
+  var scopedStudents = teacherScopedStudents();
+  var done = scopedStudents.filter(function (s) { return latestAttemptForStudent(s.id) != null; }).length;
   var html = pageHead('学生管理', className + ' · 仅可维护本人教学班学生',
     '<button class="btn" data-act="openImport" data-kind="student">' + icon('upload') + '批量导入</button>' +
     '<button class="btn btn-primary" data-act="openAddStudent">' + icon('plus') + '添加学生</button>');
 
   html += '<div class="alert info mb16">' + icon('info') +
-    '<div>学生转班后历史测试记录会保留原教学班快照，避免历史统计被改写。当前教学班共 ' + DB.students.length + ' 人，已有 ' + done + ' 人产生作答记录。</div></div>';
+    '<div>学生转班后历史测试记录会保留原教学班快照，避免历史统计被改写。当前范围共 ' + scopedStudents.length + ' 人，已有 ' + done + ' 人产生作答记录。</div></div>';
 
   html += '<div class="card"><div class="card-body tight"><div class="filters">' +
     '<input class="input search" style="width:280px" placeholder="搜索学号 / 姓名 / 专业" value="' + esc(S.stu.kw) + '" data-input="ssearch">' +
-    '<span class="small muted right">共 ' + DB.students.length + ' 名学生</span></div></div>' +
+    '<span class="small muted right">共 ' + scopedStudents.length + ' 名学生</span></div></div>' +
     '<div id="stuTableWrap">' + studentTableHTML() + '</div></div>';
   return html;
 }
@@ -168,7 +173,8 @@ function initWizard() {
   var start = new Date(now.getTime() + 10 * 60000);
   start.setSeconds(0, 0);
   var end = new Date(start.getTime() + 24 * 3600000);
-  var ownClasses = DB.classes.filter(function (c) { return c.teacherId === user.id; });
+  var ownClasses = teacherOwnClasses();
+  var scope = teacherScopeIds();
   var availableKps = DB.kps.filter(function (k) {
     return DB.questions.some(function (q) { return q.kpId === k.id; });
   });
@@ -176,7 +182,8 @@ function initWizard() {
   S.wizard = {
     step: 1,
     name: '第' + weekNoOf(now) + '周知识点测验',
-    classIds: ownClasses.length ? [ownClasses[0].id] : [],
+    classIds: scope === null ? ownClasses.map(function (c) { return c.id; }) :
+      scope.filter(function (id) { return ownClasses.some(function (c) { return c.id === id; }); }),
     kpIds: availableKps.slice(0, 4).map(function (k) { return k.id; }),
     counts: { single: 4, multi: 3, judge: 3 },
     scores: { single: 10, multi: 10, judge: 10 },
@@ -191,7 +198,7 @@ function initWizard() {
   };
 }
 function viewTCreate() {
-  var ownClasses = DB.classes.filter(function (c) { return c.teacherId === user.id; });
+  var ownClasses = teacherOwnClasses();
   if (!ownClasses.length) {
     return pageHead('创建测试', '按知识点自动组卷，发布至本人教学班') +
       '<div class="card"><div class="card-body">' +
@@ -223,7 +230,7 @@ function viewTCreate() {
 }
 function wizStep1() {
   var w = S.wizard;
-  var ownClasses = DB.classes.filter(function (c) { return c.teacherId === user.id; });
+  var ownClasses = teacherOwnClasses();
   return '<div class="card"><div class="card-head"><h3>基本信息与知识点</h3><span class="sub">至少选择 1 个知识点</span></div><div class="card-body">' +
     '<div class="form-grid"><div class="field full"><label>测试名称<i>*</i></label>' +
     '<input class="input" id="wizName" data-wiz="name" value="' + esc(w.name) + '" placeholder="如：第3周知识点测验"></div>' +
@@ -311,7 +318,7 @@ function viewTPapers() {
     if (S.paperFilter === 'draft') return p.status === 'draft';
     return paperStatus(p).key === S.paperFilter;
   });
-  var html = pageHead('我的试卷', '仅展示本人发布或参与创建的试卷',
+  var html = pageHead('我的试卷', teacherScopeLabel() + ' · 仅展示本人发布或参与创建的试卷',
     '<button class="btn btn-primary" data-act="newWizard">' + icon('plus') + '创建测试</button>');
 
   html += '<div class="card"><div class="card-head"><h3>试卷列表</h3><span class="sub">共 ' + myPapers().length + ' 份</span>' +
@@ -322,7 +329,7 @@ function viewTPapers() {
     }).join('') + '</select></div>' +
     '<div class="table-wrap"><table class="tb"><thead><tr><th>试卷名称</th><th>教学班</th><th>题量</th><th>满分</th><th>开放时间</th><th>完成情况</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
     (list.length ? list.map(function (p) {
-      var perf = perfFor(p);
+      var perf = teacherPerf(p);
       return '<tr><td class="cell-main">' + esc(p.name) + '<div class="cell-sub">创建于 ' + fmtDate(p.publishedAt || p.startAt) + '</div></td>' +
         '<td class="muted">' + esc(p.className) + '</td><td class="num">' + p.items.length + '</td><td class="num">' + paperTotal(p) + '</td>' +
         '<td class="small muted">' + fmtDT(p.startAt) + '<div>至 ' + fmtDT(p.endAt) + '</div></td>' +
@@ -340,18 +347,18 @@ function viewTPapers() {
 function viewTProgress() {
   var papers = myPapers();
   if (!papers.length) {
-    return pageHead('测试进度', '跟踪学生提交情况与完成率') +
+    return pageHead('测试进度', teacherScopeLabel() + ' · 跟踪学生提交情况与完成率') +
       '<div class="card"><div class="card-body">' +
-      emptyHTML('暂无试卷', '创建并发布测试后，这里会显示学生提交进度。', 'file') +
+      emptyHTML('当前范围暂无试卷', '创建并发布测试后，这里会显示学生提交进度。', 'file') +
       '</div></div>';
   }
   var p = PAPER(S.progressPaper) || papers[0];
   if (papers.every(function (x) { return x.id !== p.id; })) p = papers[0];
   S.progressPaper = p.id;
-  var perf = perfFor(p);
+  var perf = teacherPerf(p);
   var rate = pct(perf.completed, perf.expected);
   var rows = perf.rows.slice(0, 14);
-  var html = pageHead('测试进度', '跟踪学生提交情况与完成率',
+  var html = pageHead('测试进度', teacherScopeLabel() + ' · 跟踪学生提交情况与完成率',
     '<select class="select" style="width:210px" data-select="progressPaper">' +
     papers.map(function (x) { return '<option value="' + x.id + '" ' + (p.id === x.id ? 'selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') +
     '</select><button class="btn btn-soft" data-act="remind" data-id="' + p.id + '">' + icon('clock') + '提醒未提交</button>');
@@ -383,27 +390,30 @@ function viewTProgress() {
 function viewTStats() {
   var papers = myPapers();
   if (!papers.length) {
-    return pageHead('班级统计', '数据权限限定为本人教学班') +
+    return pageHead('班级统计', teacherScopeLabel() + ' · 数据权限限定为本人教学班') +
       '<div class="card"><div class="card-body">' +
-      emptyHTML('暂无试卷', '创建并发布测试后，这里会显示成绩分布与知识点统计。', 'chart') +
+      emptyHTML('当前范围暂无试卷', '创建并发布测试后，这里会显示成绩分布与知识点统计。', 'chart') +
       '</div></div>';
   }
   var p = PAPER(S.statPaper) || papers[0];
   if (papers.every(function (x) { return x.id !== p.id; })) p = papers[0];
   S.statPaper = p.id;
-  var className = DB.classes.filter(function (c) { return p.classIds.indexOf(c.id) > -1; }).map(function (c) { return c.name; }).join('、') || '我的教学班';
-  var perf = perfFor(p);
+  var className = teacherScopeLabel();
+  var perf = teacherPerf(p);
   var totalQ = perf.total;
-  var kpStats = DB.kpAvg.slice(0, 10).map(function (k, i) {
-    var base = p.id === 'p1' ? k.avg : clamp(k.avg + (hashStr(p.id + k.name) % 15) - 7, 40, 98);
-    return { name: k.name, rate: base, count: 4 };
-  });
+  var kpStats = teacherKpStats().sort(function (a, b) { return b.rate - a.rate; }).slice(0, 10);
   var questions = paperQuestions(p);
-  var qStats = questions.map(function (q, i) {
-    var acc = p.id === 'p1' && DB.qAccuracy[i] ? DB.qAccuracy[i].accuracy : 45 + (hashStr(p.id + q.id) % 50);
-    return { q: q, acc: clamp(acc, 20, 98) };
-  });
   var completedRows = perf.rows.filter(function (r) { return r.score != null; });
+  var qStats = questions.map(function (q) {
+    var total = 0, right = 0;
+    completedRows.forEach(function (r) {
+      var att = attemptOf(p.id, r.student.id);
+      if (!att) return;
+      total += 1;
+      if (attemptIsCorrect(att, q.id)) right += 1;
+    });
+    return { q: q, acc: total ? pct(right, total) : 0 };
+  });
   var html = pageHead('班级统计', className + ' · 数据权限限定为本人教学班',
     '<select class="select" style="width:210px" data-select="statPaper">' +
     papers.map(function (x) { return '<option value="' + x.id + '" ' + (p.id === x.id ? 'selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select>' +
@@ -455,18 +465,18 @@ function viewTStats() {
 function viewTReports() {
   var papers = myPapers();
   if (!papers.length) {
-    return pageHead('学生报告', '基于真实作答数据的知识点诊断与学习建议') +
+    return pageHead('学生报告', teacherScopeLabel() + ' · 基于真实作答数据的知识点诊断与学习建议') +
       '<div class="card"><div class="card-body">' +
-      emptyHTML('暂无试卷', '创建并发布测试后，这里会按试卷生成学生诊断报告。', 'spark') +
+      emptyHTML('当前范围暂无试卷', '创建并发布测试后，这里会按试卷生成学生诊断报告。', 'spark') +
       '</div></div>';
   }
   var p = PAPER(S.reportPaper) || papers[0];
   if (papers.every(function (x) { return x.id !== p.id; })) p = papers[0];
   S.reportPaper = p.id;
-  var perf = perfFor(p);
+  var perf = teacherPerf(p);
   var completed = perf.rows.filter(function (r) { return r.score != null; });
   var avg = completed.length ? Math.round(completed.reduce(function (a, r) { return a + r.score; }, 0) / completed.length * 10) / 10 : 0;
-  var html = pageHead('学生报告', '基于真实作答数据的知识点诊断与学习建议',
+  var html = pageHead('学生报告', teacherScopeLabel() + ' · 基于真实作答数据的知识点诊断与学习建议',
     '<select class="select" style="width:210px" data-select="reportPaper">' +
     papers.map(function (x) { return '<option value="' + x.id + '" ' + (p.id === x.id ? 'selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') +
     '</select><button class="btn" data-act="export" data-kind="students" data-paper="' + p.id + '">' + icon('download') + '导出报告清单</button>');
@@ -509,7 +519,7 @@ function studentReportModal(sid, paperId) {
   var idx = DB.students.indexOf(s);
   var score = p.id === 'p1' && DB.p1Scores ? DB.p1Scores[idx] : null;
   if (score == null) {
-    var perf = perfFor(p);
+    var perf = user.role === 'teacher' ? teacherPerf(p) : perfFor(p);
     var row = perf.rows.filter(function (r) { return r.student.id === sid; })[0];
     score = row ? row.score : null;
   }
@@ -537,12 +547,13 @@ function studentReportModal(sid, paperId) {
 
 /* ---------------- 教师导出 ---------------- */
 function viewTExport() {
-  var html = pageHead('导出中心', '本人教学班数据与试卷导出');
-  html += '<div class="alert info mb16">' + icon('info') + '<div>教师仅可导出本人教学班的数据与本人发布的试卷；导出行为会记录审计日志。</div></div>';
+  var scope = teacherScopeLabel();
+  var html = pageHead('导出中心', scope + ' · 本人教学班数据与试卷导出');
+  html += '<div class="alert info mb16">' + icon('info') + '<div>当前导出范围：<b>' + esc(scope) + '</b>。教师仅可导出本人教学班的数据与本人发布的试卷；导出行为会记录审计日志。</div></div>';
   html += '<div class="grid-3">' +
-    exportCard('学生测试明细', '本人教学班学生的作答与得分', 'students', 'users', 'XLSX / CSV') +
+    exportCard('学生测试明细', esc(scope) + '学生的作答与得分', 'students', 'users', 'XLSX / CSV') +
     exportCard('知识点统计', '本班各知识点平均得分率', 'kps', 'chart', 'XLSX') +
-    exportCard('班级测试汇总', '完成率、分数段与试卷信息', 'classSummary', 'school', 'XLSX / PDF') +
+    exportCard('班级测试汇总', esc(scope) + '完成率、分数段与试卷信息', 'classSummary', 'school', 'XLSX / PDF') +
     '</div>';
   html += '<div class="card mt16"><div class="card-head"><h3>最近导出</h3></div><div class="table-wrap"><table class="tb">' +
     '<thead><tr><th>内容</th><th>时间</th></tr></thead><tbody>' +

@@ -163,6 +163,58 @@ public class ManageController {
         return mapper.classGroup(group);
     }
 
+    /**
+     * 为现有教师批量添加教学班。前端一次提交多个名称，任一名称非法时不写入任何数据。
+     */
+    @PostMapping("/teachers/{id}/classes")
+    @Transactional
+    public Map<String, Object> addClassesToTeacher(@AuthenticationPrincipal AppPrincipal p,
+                                                   @PathVariable String id,
+                                                   @RequestBody Map<String, Object> body) {
+        requireCl(p);
+        Teacher teacher = teachers.findById(id).orElseThrow(() -> ApiException.bad("教师不存在"));
+        if (p.courseId != null && teacher.courseId != null && !p.courseId.equals(teacher.courseId)) {
+            throw ApiException.forbidden("不能为其他课程的教师添加教学班");
+        }
+        String courseId = teacher.courseId != null ? teacher.courseId : p.courseId;
+        if (courseId == null) courseId = "c1";
+        String resolvedCourseId = courseId;
+        teacher.courseId = resolvedCourseId;
+
+        String rawNames = text(body, "names");
+        if (rawNames == null || rawNames.isBlank()) rawNames = text(body, "classes");
+        List<String> names = classGroupService.splitNames(rawNames);
+        if (names.isEmpty()) throw ApiException.bad("请填写至少一个教学班名称");
+
+        Set<String> existing = new HashSet<>();
+        for (ClassGroup group : classes.findAll()) {
+            if (resolvedCourseId.equals(group.courseId) && group.name != null) {
+                existing.add(group.name.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        Set<String> seen = new HashSet<>();
+        for (String name : names) {
+            String key = name.trim().toLowerCase(Locale.ROOT);
+            if (!seen.add(key)) throw ApiException.bad("教学班「" + name + "」重复");
+            if (existing.contains(key)) throw ApiException.bad("本课程已存在同名教学班「" + name + "」");
+        }
+
+        String major = text(body, "major");
+        String term = text(body, "term");
+        List<ClassGroup> created = new ArrayList<>();
+        for (String name : names) {
+            created.add(classGroupService.createForTeacher(teacher, name.trim(), major, term));
+        }
+        teachers.save(teacher);
+        audit.log(p, "教学班", "为教师「" + teacher.name + "」新增教学班「" + String.join("、", names) + "」");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("teacher", mapper.teacher(teacher));
+        result.put("classes", created.stream().map(mapper::classGroup).toList());
+        result.put("count", created.size());
+        return result;
+    }
+
     @PostMapping("/students")
     @Transactional
     public Map<String, Object> addStudent(@AuthenticationPrincipal AppPrincipal p, @RequestBody Map<String, Object> body) {
