@@ -985,15 +985,41 @@ var ACTIONS = {
   simulateImport: simulateImport,
   confirmImport: async function () {
     if (!S.importKind || !S.importRows || !S.importChecked) { toast('请先选择文件并完成校验', 'err'); return; }
+    var kind = S.importKind;
+    var beforeStudentIds = {};
+    if (kind === 'student') {
+      (DB.students || []).forEach(function (s) { beforeStudentIds[s.id] = true; });
+    }
     var btn = $('[data-act="confirmImport"]');
     if (btn) btn.disabled = true;
     try {
-      var res = await API.importRows(S.importKind, S.importRows, true);
+      var res = await API.importRows(kind, S.importRows, true);
       renderImportResult(res);
       await reloadDB();
       S.importChecked = false;
       S.importRows = null;
-      toast('成功导入 ' + res.success + ' 条数据');
+      var message = '成功导入 ' + res.success + ' 条数据';
+      if (kind === 'student') {
+        var added = DB.students.filter(function (s) { return !beforeStudentIds[s.id]; });
+        if (added.length) {
+          var classIds = [];
+          added.forEach(function (s) {
+            if (classIds.indexOf(s.classId) < 0) classIds.push(s.classId);
+          });
+          if (user.role === 'teacher' && classIds.length) {
+            setTeacherClass(classIds.length === 1 ? classIds[0] : 'all');
+            message += '，已切换到 ' + teacherScopeLabel();
+          }
+          S.stu.kw = '';
+          var list = filteredStudents();
+          var firstAdded = -1;
+          for (var i = 0; i < list.length; i++) {
+            if (!beforeStudentIds[list[i].id]) { firstAdded = i; break; }
+          }
+          S.stu.page = firstAdded < 0 ? 1 : Math.floor(firstAdded / 10) + 1;
+        }
+      }
+      toast(message);
       setTimeout(function () { closeModal(); render(); }, 900);
     } catch (e) {
       if (btn) btn.disabled = false;
