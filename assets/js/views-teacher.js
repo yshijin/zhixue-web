@@ -119,12 +119,14 @@ function studentTableHTML() {
   var page = clamp(S.stu.page, 1, pages);
   var slice = list.slice((page - 1) * pageSize, page * pageSize);
   if (!list.length) return emptyHTML('没有找到学生', total ? '调整搜索条件后再试。' : '点击右上角“添加学生”或“批量导入”开始。', total ? 'search' : 'users');
-  var html = '<div class="table-wrap"><table class="tb"><thead><tr><th>学号</th><th>姓名</th><th>专业</th><th>最近测评</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+  var html = '<div class="table-wrap"><table class="tb"><thead><tr><th>学号</th><th>姓名</th><th>教学班</th><th>专业</th><th>最近测评</th><th>状态</th><th>操作</th></tr></thead><tbody>';
   html += slice.map(function (s) {
     var att = latestAttemptForStudent(s.id);
     var score = att ? att.score : null;
     var paperId = att ? att.paperId : (myPapers()[0] ? myPapers()[0].id : '');
+    var cls = DB.classes.filter(function (c) { return c.id === s.classId; })[0];
     return '<tr><td class="muted num">' + s.no + '</td><td class="cell-main">' + esc(s.name) + '</td>' +
+      '<td class="muted small">' + esc(cls ? cls.name : '—') + '</td>' +
       '<td class="muted">' + esc(s.major) + ' · ' + esc(s.adminClass) + '</td>' +
       '<td>' + (score == null ? '<span class="muted">—</span>' : '<b>' + score + '</b> <span class="muted small">分</span>') + '</td>' +
       '<td>' + (score == null ? tag('未提交', 'amber') : tag('已完成', 'green')) + '</td>' +
@@ -150,6 +152,12 @@ function viewTStudents() {
   var html = pageHead('学生管理', className + ' · 仅可维护本人教学班学生',
     '<button class="btn" data-act="openImport" data-kind="student">' + icon('upload') + '批量导入</button>' +
     '<button class="btn btn-primary" data-act="openAddStudent">' + icon('plus') + '添加学生</button>');
+
+  if (!scopedStudents.length && DB.students.length) {
+    html += '<div class="alert warn mb16">' + icon('alert') + '<div>当前教学班「' + esc(className) +
+      '」暂无学生；其他教学班共有 ' + DB.students.length + ' 人。' +
+      '<button class="btn btn-sm" data-act="teacherAllClasses">查看全部班级</button></div></div>';
+  }
 
   html += '<div class="alert info mb16">' + icon('info') +
     '<div>学生转班后历史测试记录会保留原教学班快照，避免历史统计被改写。当前范围共 ' + scopedStudents.length + ' 人，已有 ' + done + ' 人产生作答记录。</div></div>';

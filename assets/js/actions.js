@@ -300,10 +300,27 @@ function openImport(kind) {
   S.importKind = kind;
   S.importRows = null;
   S.importChecked = false;
+  S.importTargetClassId = '';
   var m = IMPORT_META[kind];
   if (!m) return;
+  var targetHTML = '';
+  if (kind === 'student' && user.role === 'teacher') {
+    var ownClasses = teacherOwnClasses();
+    var currentClassId = teacherCurrentClassId();
+    if (currentClassId && currentClassId !== 'all' && ownClasses.some(function (c) { return c.id === currentClassId; })) {
+      S.importTargetClassId = currentClassId;
+    }
+    targetHTML = '<div class="form-grid mb12"><div class="field full"><label>导入目标教学班</label>' +
+      '<select class="select" data-select="importTargetClass">' +
+      '<option value="" ' + (!S.importTargetClassId ? 'selected' : '') + '>按文件中的教学班</option>' +
+      ownClasses.map(function (c) {
+        return '<option value="' + esc(c.id) + '" ' + (S.importTargetClassId === c.id ? 'selected' : '') + '>' + esc(c.name) + '（' + c.count + ' 人）</option>';
+      }).join('') + '</select>' +
+      '<div class="form-note mt8">默认导入当前教学班；选择“按文件中的教学班”则保留 CSV 中的班级列。</div></div></div>';
+  }
   showModal(modalHead(m.title, 'CSV 模板 + 服务端预检') +
     '<div class="modal-body"><div class="import-note mb12"><b>模板字段：</b>' + m.cols + '<br>' + m.note + '</div>' +
+    targetHTML +
     '<div class="row mb12"><button class="btn btn-sm" data-act="downloadTemplate" data-kind="' + kind + '">' + icon('download') + '下载 CSV 模板</button>' +
     '<span class="small muted">UTF-8 编码；Excel 请“另存为 CSV UTF-8”后上传</span></div>' +
     '<div class="dropzone" data-act="pickImportFile"><div>' + icon('upload') + '<b>点击选择 CSV 文件</b><small>支持 .csv，单文件不超过 10MB</small></div></div>' +
@@ -381,11 +398,38 @@ function renderImportResult(res) {
   $$('[data-act="confirmImport"]').forEach(function (b) { b.disabled = errors.length > 0 || res.success < 1 || res.commit; });
 }
 
+function importRowsForSubmit(kind, rows) {
+  if (kind !== 'student' || !S.importTargetClassId || user.role !== 'teacher') return rows;
+  var target = DB.classes.filter(function (c) { return c.id === S.importTargetClassId; })[0];
+  if (!target || !rows || rows.length < 2) return rows;
+  var out = rows.map(function (row) { return row.slice(); });
+  var header = out[0] || [];
+  var classIndex = -1;
+  for (var i = 0; i < header.length; i++) {
+    var h = String(header[i] || '').trim().toLowerCase();
+    if (h === '教学班' || h === '班级' || h === 'class') { classIndex = i; break; }
+  }
+  if (classIndex < 0) {
+    classIndex = header.length;
+    out[0].push('教学班');
+    for (var r = 1; r < out.length; r++) {
+      while (out[r].length < classIndex) out[r].push('');
+      out[r][classIndex] = target.name;
+    }
+  } else {
+    for (var j = 1; j < out.length; j++) {
+      while (out[j].length <= classIndex) out[j].push('');
+      out[j][classIndex] = target.name;
+    }
+  }
+  return out;
+}
+
 async function simulateImport() {
   if (!S.importKind) return;
   try {
     S.importRows = await readImportFile();
-    var res = await API.importRows(S.importKind, S.importRows, false);
+    var res = await API.importRows(S.importKind, importRowsForSubmit(S.importKind, S.importRows), false);
     S.importChecked = true;
     renderImportResult(res);
   } catch (e) {
@@ -974,6 +1018,10 @@ var ACTIONS = {
     S.stu.page = parseInt(el.dataset.page, 10) || 1;
     refreshStuTable();
   },
+  teacherAllClasses: function () {
+    setTeacherClass('all');
+    render();
+  },
   openAddKp: openAddKp,
   openAddQuestion: openAddQuestion,
   openAddTeacher: openAddTeacher,
@@ -993,7 +1041,7 @@ var ACTIONS = {
     var btn = $('[data-act="confirmImport"]');
     if (btn) btn.disabled = true;
     try {
-      var res = await API.importRows(kind, S.importRows, true);
+      var res = await API.importRows(kind, importRowsForSubmit(kind, S.importRows), true);
       renderImportResult(res);
       await reloadDB();
       S.importChecked = false;
@@ -1492,6 +1540,15 @@ document.addEventListener('change', function (e) {
   }
   if (el.dataset.select === 'teacherClass') {
     setTeacherClass(el.value); render(); return;
+  }
+  if (el.dataset.select === 'importTargetClass') {
+    S.importTargetClassId = el.value;
+    S.importChecked = false;
+    var importResult = document.getElementById('importResult');
+    if (importResult) importResult.innerHTML = '';
+    var confirmImport = document.querySelector('[data-act="confirmImport"]');
+    if (confirmImport) confirmImport.disabled = true;
+    return;
   }
   if (el.dataset.select === 'statPaper') {
     S.statPaper = el.value; render(); return;

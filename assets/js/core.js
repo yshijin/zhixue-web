@@ -732,5 +732,6 @@ var S = {
   wizard: null,
   exam: null,
   timer: null,
-  importKind: null
+  importKind: null,
+  importTargetClassId: ''
 };
